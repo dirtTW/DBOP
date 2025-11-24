@@ -38,7 +38,7 @@ jobs:
       contents: write
     steps:
       - name: Clone Repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Download packwiz
         uses: actions/download-artifact@v6
         with:
