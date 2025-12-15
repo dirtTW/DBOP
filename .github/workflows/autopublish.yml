@@ -40,7 +40,7 @@ jobs:
       - name: Clone Repo
         uses: actions/checkout@v5
       - name: Download packwiz
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: "Linux 64-bit x86"
           github-token: ${{ secrets.GH_PAT }}
