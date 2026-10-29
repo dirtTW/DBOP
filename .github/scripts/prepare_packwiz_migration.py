@@ -44,6 +44,41 @@ def increment_patch_version(version: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
+def increment_minor_version(version: str) -> str:
+    match = SEMVER_PATTERN.fullmatch(version)
+    if not match:
+        raise ValueError(f"Expected a three-part pack version, found {version!r}")
+    major, minor, _ = (int(part) for part in match.groups())
+    return f"{major}.{minor + 1}.0"
+
+
+def next_migration_pack_version(
+    pack_version: str,
+    source_minecraft_version: str,
+    target_minecraft_version: str,
+) -> str:
+    source_series = ".".join(source_minecraft_version.split(".")[:2])
+    target_series = ".".join(target_minecraft_version.split(".")[:2])
+    if source_series != target_series:
+        return increment_minor_version(pack_version)
+    return increment_patch_version(pack_version)
+
+
+def update_pack_version_files(pack_dir: Path, source_version: str, target_version: str) -> None:
+    pack_path = pack_dir / "pack.toml"
+    pack = pack_path.read_text(encoding="utf-8")
+    pack_path.write_text(replace_toml_value(pack, "version", target_version), encoding="utf-8")
+
+    credits_path = pack_dir / "config" / "isxander-main-menu-credits.json"
+    if credits_path.exists():
+        credits = credits_path.read_text(encoding="utf-8")
+        credits = credits.replace(
+            f"DirtTW's Basement Optimize Pack v{source_version}",
+            f"DirtTW's Basement Optimize Pack v{target_version}",
+        )
+        credits_path.write_text(credits, encoding="utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -53,11 +88,16 @@ def main() -> None:
     )
     args = parser.parse_args()
     pack_root = args.packwiz_root.resolve()
+    mode = os.environ.get("MODE", "migrate").strip()
+    if mode not in {"migrate", "update_existing"}:
+        raise ValueError(f"Unsupported workflow mode: {mode!r}")
     manifest = fetch_json(VERSION_MANIFEST_URL)
     version_records = manifest["versions"]
     versions_by_id = {version["id"]: version for version in version_records}
 
     requested_version = os.environ.get("MINECRAFT_VERSION", "").strip()
+    if mode == "update_existing" and not requested_version:
+        raise ValueError("Select an existing Minecraft version when updating an existing pack")
     if requested_version:
         if not VERSION_PATTERN.fullmatch(requested_version):
             raise ValueError(f"Invalid Minecraft version: {requested_version!r}")
@@ -69,6 +109,24 @@ def main() -> None:
         target_version = manifest["latest"]["release"]
 
     target_dir = pack_root / target_version
+    if mode == "update_existing":
+        if not (target_dir / "pack.toml").is_file():
+            raise FileNotFoundError(f"No existing Packwiz pack found for Minecraft {target_version}")
+        pack_contents = (target_dir / "pack.toml").read_text(encoding="utf-8")
+        pack_version_match = re.search(r'^version\s*=\s*"([^"]+)"\s*$', pack_contents, re.MULTILINE)
+        if not pack_version_match:
+            raise ValueError(f"Could not read pack version from {target_dir / 'pack.toml'}")
+        source_pack_version = pack_version_match.group(1)
+        target_pack_version = increment_patch_version(source_pack_version)
+        update_pack_version_files(target_dir, source_pack_version, target_pack_version)
+        print(f"Prepared existing Minecraft {target_version} pack v{target_pack_version} for mod updates.")
+        set_output("skip", "false")
+        set_output("target_version", target_version)
+        set_output("source_version", target_version)
+        set_output("source_pack_version", source_pack_version)
+        set_output("target_pack_version", target_pack_version)
+        return
+
     if target_dir.exists():
         print(f"Packwiz/{target_version} already exists; no migration is needed.")
         set_output("skip", "true")
@@ -105,7 +163,14 @@ def main() -> None:
     if not source_version_match:
         raise ValueError(f"Could not read pack version from {source_dir / 'pack.toml'}")
     source_pack_version = source_version_match.group(1)
-    target_pack_version = increment_patch_version(source_pack_version)
+    source_minecraft_match = re.search(r'^minecraft\s*=\s*"([^"]+)"\s*$', source_pack, re.MULTILINE)
+    if not source_minecraft_match:
+        raise ValueError(f"Could not read Minecraft version from {source_dir / 'pack.toml'}")
+    target_pack_version = next_migration_pack_version(
+        source_pack_version,
+        source_minecraft_match.group(1),
+        target_version,
+    )
     target_name = f"DBOP MC {target_version}"
 
     shutil.copytree(source_dir, target_dir)
@@ -117,14 +182,7 @@ def main() -> None:
     target_pack = replace_toml_value(target_pack, "fabric", loader_version)
     target_pack_path.write_text(target_pack, encoding="utf-8")
 
-    credits_path = target_dir / "config" / "isxander-main-menu-credits.json"
-    if credits_path.exists():
-        credits = credits_path.read_text(encoding="utf-8")
-        credits = credits.replace(
-            f"DirtTW's Basement Optimize Pack v{source_pack_version}",
-            f"DirtTW's Basement Optimize Pack v{target_pack_version}",
-        )
-        credits_path.write_text(credits, encoding="utf-8")
+    update_pack_version_files(target_dir, source_pack_version, target_pack_version)
 
     dependencies_path = target_dir / "config" / "fabric_loader_dependencies.json"
     if not dependencies_path.exists():
