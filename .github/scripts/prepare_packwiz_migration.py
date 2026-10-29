@@ -52,6 +52,18 @@ def increment_minor_version(version: str) -> str:
     return f"{major}.{minor + 1}.0"
 
 
+def next_migration_pack_version(
+    pack_version: str,
+    source_minecraft_version: str,
+    target_minecraft_version: str,
+) -> str:
+    source_series = ".".join(source_minecraft_version.split(".")[:2])
+    target_series = ".".join(target_minecraft_version.split(".")[:2])
+    if source_series != target_series:
+        return increment_minor_version(pack_version)
+    return increment_patch_version(pack_version)
+
+
 def update_pack_version_files(pack_dir: Path, source_version: str, target_version: str) -> None:
     pack_path = pack_dir / "pack.toml"
     pack = pack_path.read_text(encoding="utf-8")
@@ -154,12 +166,11 @@ def main() -> None:
     source_minecraft_match = re.search(r'^minecraft\s*=\s*"([^"]+)"\s*$', source_pack, re.MULTILINE)
     if not source_minecraft_match:
         raise ValueError(f"Could not read Minecraft version from {source_dir / 'pack.toml'}")
-    source_minecraft_major = source_minecraft_match.group(1).split(".", maxsplit=1)[0]
-    target_minecraft_major = target_version.split(".", maxsplit=1)[0]
-    if source_minecraft_major != target_minecraft_major:
-        target_pack_version = increment_minor_version(source_pack_version)
-    else:
-        target_pack_version = increment_patch_version(source_pack_version)
+    target_pack_version = next_migration_pack_version(
+        source_pack_version,
+        source_minecraft_match.group(1),
+        target_version,
+    )
     target_name = f"DBOP MC {target_version}"
 
     shutil.copytree(source_dir, target_dir)
