@@ -83,7 +83,10 @@ jobs:
             --log "${RUNNER_TEMP}/packwiz-update.log" \
             --output "${RUNNER_TEMP}/packwiz-update-report.md" \
             --changelog-output "Packwiz/${MINECRAFT_VERSION}/changelog.md"
-          "$(go env GOPATH)/bin/packwiz" -y refresh
+          (
+            cd "Packwiz/${MINECRAFT_VERSION}"
+            "$(go env GOPATH)/bin/packwiz" -y refresh
+          )
           cat "${RUNNER_TEMP}/packwiz-update-report.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload update report
