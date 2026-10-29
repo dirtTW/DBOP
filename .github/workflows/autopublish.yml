@@ -42,7 +42,7 @@ jobs:
       - name: Find latest successful Packwiz build
         id: packwiz-run
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           run_id=$(gh api repos/packwiz/packwiz/actions/workflows/go.yml/runs \
             --field branch=main \
