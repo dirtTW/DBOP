@@ -25,7 +25,6 @@ permissions:
 jobs:
   migrate:
     runs-on: ubuntu-24.04
-    environment: github-actions
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -37,35 +36,15 @@ jobs:
           MINECRAFT_VERSION: ${{ inputs.minecraft_version }}
         run: python3 .github/scripts/prepare_packwiz_migration.py
 
-      - name: Find latest successful Packwiz build
+      - name: Set up Go
         if: steps.prepare.outputs.skip != 'true'
-        id: packwiz-run
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          run_id=$(gh api repos/packwiz/packwiz/actions/workflows/go.yml/runs \
-            --field branch=main \
-            --field per_page=20 \
-            --jq '[.workflow_runs[] | select(.conclusion == "success")][0].id')
-          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
-            echo "No successful Packwiz build was found." >&2
-            exit 1
-          fi
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-
-      - name: Download Packwiz
-        if: steps.prepare.outputs.skip != 'true'
-        uses: actions/download-artifact@v6
+        uses: actions/setup-go@v6
         with:
-          name: "Linux 64-bit x86"
-          github-token: ${{ secrets.GH_PAT }}
-          repository: dirttw/packwiz
-          run-id: ${{ steps.packwiz-run.outputs.run_id }}
-          path: ${{ runner.temp }}/packwiz-cli
+          go-version: "1.24.x"
 
-      - name: Make Packwiz executable
+      - name: Install Packwiz
         if: steps.prepare.outputs.skip != 'true'
-        run: chmod +x "${RUNNER_TEMP}/packwiz-cli/packwiz"
+        run: go install github.com/packwiz/packwiz@latest
 
       - name: Refresh pack index and capture original mod metadata
         if: steps.prepare.outputs.skip != 'true'
@@ -73,7 +52,7 @@ jobs:
         env:
           SOURCE_VERSION: ${{ steps.prepare.outputs.source_version }}
         run: |
-          "${RUNNER_TEMP}/packwiz-cli/packwiz" refresh
+          "$(go env GOPATH)/bin/packwiz" refresh
           cp -R "../${SOURCE_VERSION}/mods" "${RUNNER_TEMP}/source-mods"
 
       - name: Update all compatible mods
@@ -82,7 +61,7 @@ jobs:
         working-directory: Packwiz/${{ steps.prepare.outputs.target_version }}
         run: |
           set +e
-          "${RUNNER_TEMP}/packwiz-cli/packwiz" --yes update --all 2>&1 | tee "${RUNNER_TEMP}/packwiz-update.log"
+          "$(go env GOPATH)/bin/packwiz" --yes update --all 2>&1 | tee "${RUNNER_TEMP}/packwiz-update.log"
           result=${PIPESTATUS[0]}
           if [ "$result" -ne 0 ]; then
             echo "Packwiz update failed with exit code $result; generating the report from available results." >&2
@@ -104,7 +83,7 @@ jobs:
             --log "${RUNNER_TEMP}/packwiz-update.log" \
             --output "${RUNNER_TEMP}/packwiz-update-report.md" \
             --changelog-output "Packwiz/${MINECRAFT_VERSION}/changelog.md"
-          "${RUNNER_TEMP}/packwiz-cli/packwiz" -y refresh
+          "$(go env GOPATH)/bin/packwiz" -y refresh
           cat "${RUNNER_TEMP}/packwiz-update-report.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload update report
