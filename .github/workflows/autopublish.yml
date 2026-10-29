@@ -39,13 +39,27 @@ jobs:
     steps:
       - name: Clone Repo
         uses: actions/checkout@v5
+      - name: Find latest successful Packwiz build
+        id: packwiz-run
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          run_id=$(gh api repos/packwiz/packwiz/actions/workflows/go.yml/runs \
+            --field branch=main \
+            --field per_page=20 \
+            --jq '[.workflow_runs[] | select(.conclusion == "success")][0].id')
+          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+            echo "No successful Packwiz build was found." >&2
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
       - name: Download packwiz
         uses: actions/download-artifact@v6
         with:
           name: "Linux 64-bit x86"
           github-token: ${{ secrets.GH_PAT }}
           repository: dirttw/packwiz
-          run-id: 17694483352
+          run-id: ${{ steps.packwiz-run.outputs.run_id }}
       - name: Export to packwiz
         run: |
           chmod +x ./packwiz

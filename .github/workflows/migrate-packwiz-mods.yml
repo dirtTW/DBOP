@@ -1,0 +1,124 @@
+name: Prepare Packwiz update for Minecraft release
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      minecraft_version:
+        description: Stable version to prepare (blank uses the latest stable release)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Create target pack from the latest existing pack
+        id: prepare
+        env:
+          MINECRAFT_VERSION: ${{ inputs.minecraft_version }}
+        run: python3 .github/scripts/prepare_packwiz_migration.py
+
+      - name: Find latest successful Packwiz build
+        if: steps.prepare.outputs.skip != 'true'
+        id: packwiz-run
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          run_id=$(gh api repos/packwiz/packwiz/actions/workflows/go.yml/runs \
+            --field branch=main \
+            --field per_page=20 \
+            --jq '[.workflow_runs[] | select(.conclusion == "success")][0].id')
+          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+            echo "No successful Packwiz build was found." >&2
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Download Packwiz
+        if: steps.prepare.outputs.skip != 'true'
+        uses: actions/download-artifact@v6
+        with:
+          name: "Linux 64-bit x86"
+          github-token: ${{ secrets.GH_PAT }}
+          repository: dirttw/packwiz
+          run-id: ${{ steps.packwiz-run.outputs.run_id }}
+          path: ${{ runner.temp }}/packwiz-cli
+
+      - name: Make Packwiz executable
+        if: steps.prepare.outputs.skip != 'true'
+        run: chmod +x "${RUNNER_TEMP}/packwiz-cli/packwiz"
+
+      - name: Refresh pack index and capture original mod metadata
+        if: steps.prepare.outputs.skip != 'true'
+        working-directory: Packwiz/${{ steps.prepare.outputs.target_version }}
+        env:
+          SOURCE_VERSION: ${{ steps.prepare.outputs.source_version }}
+        run: |
+          "${RUNNER_TEMP}/packwiz-cli/packwiz" refresh
+          cp -R "../${SOURCE_VERSION}/mods" "${RUNNER_TEMP}/source-mods"
+
+      - name: Update all compatible mods
+        if: steps.prepare.outputs.skip != 'true'
+        id: update
+        working-directory: Packwiz/${{ steps.prepare.outputs.target_version }}
+        run: |
+          set +e
+          "${RUNNER_TEMP}/packwiz-cli/packwiz" --yes update --all 2>&1 | tee "${RUNNER_TEMP}/packwiz-update.log"
+          result=${PIPESTATUS[0]}
+          if [ "$result" -ne 0 ]; then
+            echo "Packwiz update failed with exit code $result; generating the report from available results." >&2
+          fi
+          echo "exit_code=$result" >> "$GITHUB_OUTPUT"
+
+      - name: Generate update and review report
+        if: steps.prepare.outputs.skip != 'true'
+        env:
+          MINECRAFT_VERSION: ${{ steps.prepare.outputs.target_version }}
+          SOURCE_VERSION: ${{ steps.prepare.outputs.source_version }}
+          SOURCE_PACK_VERSION: ${{ steps.prepare.outputs.source_pack_version }}
+          TARGET_PACK_VERSION: ${{ steps.prepare.outputs.target_pack_version }}
+          PACKWIZ_EXIT_CODE: ${{ steps.update.outputs.exit_code }}
+        run: |
+          python3 .github/scripts/report_packwiz_updates.py \
+            --source-mods "${RUNNER_TEMP}/source-mods" \
+            --target-mods "Packwiz/${MINECRAFT_VERSION}/mods" \
+            --log "${RUNNER_TEMP}/packwiz-update.log" \
+            --output "${RUNNER_TEMP}/packwiz-update-report.md" \
+            --changelog-output "Packwiz/${MINECRAFT_VERSION}/changelog.md"
+          "${RUNNER_TEMP}/packwiz-cli/packwiz" -y refresh
+          cat "${RUNNER_TEMP}/packwiz-update-report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload update report
+        if: steps.prepare.outputs.skip != 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: packwiz-update-report-${{ steps.prepare.outputs.target_version }}
+          path: ${{ runner.temp }}/packwiz-update-report.md
+
+      - name: Open review pull request
+        if: steps.prepare.outputs.skip != 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          add-paths: Packwiz/${{ steps.prepare.outputs.target_version }}/
+          branch: bot/packwiz-migration-${{ steps.prepare.outputs.target_version }}
+          delete-branch: true
+          title: Prepare DBOP v${{ steps.prepare.outputs.target_pack_version }} for Minecraft ${{ steps.prepare.outputs.target_version }}
+          commit-message: Prepare DBOP v${{ steps.prepare.outputs.target_pack_version }} for Minecraft ${{ steps.prepare.outputs.target_version }}
+          body: |
+            Creates a new Packwiz folder from the latest existing pack, increments the pack version, and updates its Minecraft and Fabric Loader versions.
+
+            The target pack includes a `changelog.md` listing changed mods and linking the full GitHub comparison. Review the **packwiz-update-report-${{ steps.prepare.outputs.target_version }}** artifact for unchanged mods that may need an alternative or manual disabling. Nothing is disabled automatically.
+
+      - name: Mark Packwiz command failure
+        if: steps.prepare.outputs.skip != 'true' && steps.update.outputs.exit_code != '0'
+        run: exit 1
