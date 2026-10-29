@@ -5,8 +5,16 @@ on:
     - cron: "17 6 * * *"
   workflow_dispatch:
     inputs:
+      mode:
+        description: What to prepare
+        required: true
+        default: migrate
+        type: choice
+        options:
+          - migrate
+          - update_existing
       minecraft_version:
-        description: Stable version to prepare (blank uses the latest stable release)
+        description: Stable version to update (blank only works for automatic migration)
         required: false
         type: string
 
@@ -21,9 +29,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      - name: Create target pack from the latest existing pack
+      - name: Prepare migration or existing pack update
         id: prepare
         env:
+          MODE: ${{ inputs.mode || 'migrate' }}
           MINECRAFT_VERSION: ${{ inputs.minecraft_version }}
         run: python3 .github/scripts/prepare_packwiz_migration.py
 
@@ -110,14 +119,14 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           add-paths: Packwiz/${{ steps.prepare.outputs.target_version }}/
-          branch: bot/packwiz-migration-${{ steps.prepare.outputs.target_version }}
+          branch: bot/packwiz-${{ inputs.mode || 'migrate' }}-${{ steps.prepare.outputs.target_version }}-v${{ steps.prepare.outputs.target_pack_version }}
           delete-branch: true
-          title: Prepare DBOP v${{ steps.prepare.outputs.target_pack_version }} for Minecraft ${{ steps.prepare.outputs.target_version }}
-          commit-message: Prepare DBOP v${{ steps.prepare.outputs.target_pack_version }} for Minecraft ${{ steps.prepare.outputs.target_version }}
+          title: ${{ inputs.mode == 'update_existing' && 'Update' || 'Prepare' }} DBOP v${{ steps.prepare.outputs.target_pack_version }} for Minecraft ${{ steps.prepare.outputs.target_version }}
+          commit-message: ${{ inputs.mode == 'update_existing' && 'Update' || 'Prepare' }} DBOP v${{ steps.prepare.outputs.target_pack_version }} for Minecraft ${{ steps.prepare.outputs.target_version }}
           body: |
-            Creates a new Packwiz folder from the latest existing pack, increments the pack version, and updates its Minecraft and Fabric Loader versions.
+            ${{ inputs.mode == 'update_existing' && 'Updates the existing Packwiz pack and increments its patch version.' || 'Creates a new Packwiz folder from the latest existing pack, increments the version series when the Minecraft major version changes, and updates Minecraft and Fabric Loader metadata.' }}
 
-            The target pack includes a `changelog.md` listing changed mods and linking the full GitHub comparison. Review the **packwiz-update-report-${{ steps.prepare.outputs.target_version }}** artifact for unchanged mods that may need an alternative or manual disabling. Nothing is disabled automatically.
+            The target pack includes a `changelog.md` listing changed mods and linking the full GitHub comparison. Review the **packwiz-update-report-${{ steps.prepare.outputs.target_version }}** artifact for unchanged mods that may need an alternative or manual disabling. Nothing is disabled automatically and this workflow does not publish releases.
 
       - name: Mark Packwiz command failure
         if: steps.prepare.outputs.skip != 'true' && steps.update.outputs.exit_code != '0'
