@@ -1,5 +1,5 @@
 name: Automatically publish to Modrinth and CurseForge
-on: 
+on:
   release:
     types: [published]
 jobs:
@@ -9,7 +9,7 @@ jobs:
     environment: github-actions
     steps:
       - name: Download pack files
-        uses: robinraju/release-downloader@v1.12
+        uses: robinraju/release-downloader@v1.13
         id: download-files
         with:
           fileName: "*.zip"
@@ -19,7 +19,7 @@ jobs:
           preRelease: true
 
       - name: Publish to CurseForge
-        uses: Kir-Antipov/mc-publish@v3.3
+        uses: Kira-NT/mc-publish@v3.3.2
         with:
           name: MC ${{ vars.MC_VERSION }} DBOP v${{ steps.download-files.outputs.tag_name }}
           curseforge-id: 968954
@@ -38,11 +38,17 @@ jobs:
       contents: write
     steps:
       - name: Clone Repo
-        uses: actions/checkout@v5
-      - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/checkout@v7
+      - name: Set up Node.js LTS
+        uses: actions/setup-node@v7
         with:
-          go-version: "1.24.x"
+          node-version: "26"
+      - name: Check workflow formatting
+        run: npx --yes prettier@3.9.10 --check .github/workflows/autopublish.yml
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
       - name: Install Packwiz
         run: go install github.com/packwiz/packwiz@latest
       - name: Export to packwiz
@@ -52,7 +58,7 @@ jobs:
           popd
       - name: Attest mrpack
         id: attest-mrpack
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: DBOP-${{ github.ref_name }}.mrpack
       - name: Copy and zip attestation
@@ -60,7 +66,7 @@ jobs:
           cp ${{ steps.attest-mrpack.outputs.bundle-path }} cosign-bundle.json
           zip cosign-bundle.zip cosign-bundle.json
       - name: Publish to Modrinth
-        uses: Kir-Antipov/mc-publish@v3.3
+        uses: Kira-NT/mc-publish@v3.3.2
         with:
           name: MC ${{ vars.MC_VERSION }} DBOP v${{ github.ref_name }}
           modrinth-id: olssWAmw
