@@ -25,6 +25,7 @@ permissions:
 jobs:
   migrate:
     runs-on: ubuntu-24.04
+    environment: github-actions
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -40,7 +41,7 @@ jobs:
         if: steps.prepare.outputs.skip != 'true'
         id: packwiz-run
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           run_id=$(gh api repos/packwiz/packwiz/actions/workflows/go.yml/runs \
             --field branch=main \
