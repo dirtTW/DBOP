@@ -1,0 +1,13 @@
+name = "Simple Shulker Preview"
+filename = "simpleshulkerpreview-2.6.0-mc26.3.jar"
+side = "client"
+
+[download]
+url = "https://cdn.modrinth.com/data/MLwpdyw5/versions/GjXndeAt/simpleshulkerpreview-2.6.0-mc26.3.jar"
+hash-format = "sha512"
+hash = "5bdb1c1a3dad3763abc85b1b3a6991c6bbd69ad2de881ca1ee9bd7b4df64810fb2f9415bc63e87cdf268e9528e8bd8988d3c6dcf86d2eb35c305b5cace407a42"
+
+[update]
+[update.modrinth]
+mod-id = "MLwpdyw5"
+version = "GjXndeAt"
