@@ -1,0 +1,13 @@
+name = "DBOP MC 26.3"
+author = "dirtTW"
+version = "0.7.0"
+pack-format = "packwiz:1.1.0"
+
+[index]
+file = "index.toml"
+hash-format = "sha256"
+hash = "9d6aab39a92d22a6efee7df119de10ac7345016e3790dc3bd6805fb9be34c07f"
+
+[versions]
+fabric = "0.20.1"
+minecraft = "26.3"

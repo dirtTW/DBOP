@@ -1,0 +1,13 @@
+name = "Concentration"
+filename = "concentration-fabric-1.21-2.3.0.jar"
+side = "client"
+
+[download]
+url = "https://cdn.modrinth.com/data/QyvWSZ5S/versions/NQzCUwOd/concentration-fabric-1.21-2.3.0.jar"
+hash-format = "sha512"
+hash = "cd3ed16e87958239483578fe5f03dc9867bb506deb8de8bf358f4f59676136fcb74816c558115fff4cf481d6ae3a48b2fa9c24c13dd8aae8858093e929f17d06"
+
+[update]
+[update.modrinth]
+mod-id = "QyvWSZ5S"
+version = "NQzCUwOd"
