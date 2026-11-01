@@ -1,0 +1,18 @@
+{
+  "main_menu": {
+    "top_left": [],
+    "top_right": [],
+    "bottom_left": [],
+    "bottom_right": [
+      {"text":"DirtTW's Basement Optimize Pack v0.7.0","clickEvent":{"action":"open_url","value":"https://modrinth.com/modpack/dbop"}}
+    ],
+    "mod_blacklist": []
+  },
+  "pause_menu": {
+    "top_left": [],
+    "top_right": [],
+    "bottom_left": [],
+    "bottom_right": [],
+    "mod_blacklist": []
+  }
+}
