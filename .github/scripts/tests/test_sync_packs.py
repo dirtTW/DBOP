@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPO_ROOT / "sync-packs.py"
@@ -191,6 +192,14 @@ class SyncPacksTest(unittest.TestCase):
         self.assertEqual(
             sync_packs.next_pack_version("0.6.2", "1.21.8", "1.21.9"), "0.6.3"
         )
+
+    def test_export_mrpack_uses_pack_version(self) -> None:
+        with patch.object(sync_packs, "run_packwiz") as run_packwiz:
+            output = sync_packs.export_mrpack("packwiz", self.pw, [])
+        self.assertEqual(output, self.pw / "DBOP-0.6.2.mrpack")
+        run_packwiz.assert_called_once()
+        args = run_packwiz.call_args.args[2]
+        self.assertEqual(args, ["modrinth", "export", "-o", "DBOP-0.6.2.mrpack"])
 
     def test_create_refuses_existing_target_without_force(self) -> None:
         sync_packs.create_version(
