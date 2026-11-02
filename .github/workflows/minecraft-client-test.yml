@@ -1,0 +1,391 @@
+name: Minecraft Fabric client test
+
+# Launches the real Minecraft client (not a server) with the Packwiz mod set in
+# a headless CI environment.  If the client crashes, the log analysis step
+# names the mod whose classes / mixin config / loader error caused it.
+#
+# The client is started with HeadlessMC + Xvfb, and the mc-runtime-test mod
+# joins a singleplayer world before the game exits.  The Fabric loader version
+# is taken from the pack's pack.toml, so the test uses the same loader as the
+# released pack.
+
+on:
+  workflow_dispatch:
+    inputs:
+      minecraft_version:
+        description: Packwiz/Minecraft version to test
+        required: true
+        default: "1.21.8"
+      java_version:
+        description: Java major version used to run Minecraft (17 for 1.20.x, 21 for 1.21.x)
+        required: true
+        default: "21"
+  workflow_call:
+    inputs:
+      minecraft_version:
+        description: Packwiz/Minecraft version to test
+        required: false
+        type: string
+        default: "1.21.8"
+      java_version:
+        description: Java major version used to run Minecraft
+        required: false
+        type: string
+        default: "21"
+      pack_artifact:
+        description: Optional artifact containing an updated Packwiz folder to test instead of the checked-out pack
+        required: false
+        type: string
+        default: ""
+      pack_artifact_path:
+        description: Destination path for pack_artifact (e.g. Packwiz/1.21.9)
+        required: false
+        type: string
+        default: ""
+  pull_request:
+    paths:
+      - "Packwiz/1.21.8/**"
+      - ".github/workflows/minecraft-client-test.yml"
+      - ".github/scripts/download_packwiz_client.py"
+      - ".github/scripts/analyze_minecraft_logs.py"
+      - ".github/scripts/tests/**"
+  push:
+    branches:
+      - main
+    paths:
+      - "Packwiz/1.21.8/**"
+      - ".github/workflows/minecraft-client-test.yml"
+      - ".github/scripts/download_packwiz_client.py"
+      - ".github/scripts/analyze_minecraft_logs.py"
+      - ".github/scripts/tests/**"
+  schedule:
+    # Weekly smoke test: catches a mod/asset breaking without a pack change.
+    - cron: "41 2 * * 1"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: minecraft-client-test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MC_VERSION: ${{ inputs.minecraft_version || github.event.inputs.minecraft_version || '1.21.8' }}
+  JAVA_VERSION: ${{ inputs.java_version || github.event.inputs.java_version || '21' }}
+  PACK_DIR: Packwiz/${{ inputs.minecraft_version || github.event.inputs.minecraft_version || '1.21.8' }}
+  PACK_ARTIFACT: ${{ inputs.pack_artifact || '' }}
+  PACK_ARTIFACT_PATH: ${{ inputs.pack_artifact_path || '' }}
+  HMC_VERSION: "3.0.0-RC8"
+  MCRT_VERSION: "5.0.1"
+
+jobs:
+  analyzer-tests:
+    name: Test downloader and crash attribution
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run unit tests
+        run: python -m unittest discover -s .github/scripts/tests -v
+
+  client-test:
+    name: Launch Minecraft ${{ inputs.minecraft_version || github.event.inputs.minecraft_version || '1.21.8' }} with Fabric
+    needs: analyzer-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Verify pack artifact destination
+        if: env.PACK_ARTIFACT != '' && env.PACK_ARTIFACT_PATH == ''
+        shell: bash
+        run: |
+          echo "::error title=Missing pack artifact path::pack_artifact_path is required when pack_artifact is set"
+          exit 1
+
+      - name: Remove checked-out pack before restore
+        if: env.PACK_ARTIFACT != ''
+        shell: bash
+        run: |
+          rm -rf "$PACK_DIR"
+          mkdir -p "$PACK_DIR"
+
+      - name: Download updated pack artifact
+        if: env.PACK_ARTIFACT != ''
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ env.PACK_ARTIFACT }}
+          path: ${{ env.PACK_ARTIFACT_PATH }}
+
+      - name: Set up Java for Minecraft
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Remember the game Java
+        shell: bash
+        run: echo "GAME_JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Set up Java for HeadlessMC
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Remember the HeadlessMC Java
+        shell: bash
+        run: echo "HMC_JAVA=$JAVA_HOME/bin/java" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Show tool versions
+        shell: bash
+        run: |
+          echo "Game Java: $GAME_JAVA_HOME"
+          "$GAME_JAVA_HOME/bin/java" -version
+          echo "HeadlessMC Java: $HMC_JAVA"
+          "$HMC_JAVA" -version
+          python3 --version
+
+      - name: Read and verify pack metadata
+        id: pack-meta
+        shell: bash
+        run: |
+          if [ ! -f "$PACK_DIR/pack.toml" ]; then
+            echo "::error title=Pack not found::$PACK_DIR/pack.toml does not exist"
+            exit 1
+          fi
+          loader=$(python3 -c 'import tomllib,sys; print(tomllib.load(open(sys.argv[1], "rb"))["versions"]["fabric"])' "$PACK_DIR/pack.toml")
+          mc=$(python3 -c 'import tomllib,sys; print(tomllib.load(open(sys.argv[1], "rb"))["versions"]["minecraft"])' "$PACK_DIR/pack.toml")
+          if [ "$mc" != "$MC_VERSION" ]; then
+            echo "::error title=Version mismatch::Input $MC_VERSION does not match $PACK_DIR/pack.toml ($mc)"
+            exit 1
+          fi
+          echo "fabric_loader=$loader" >> "$GITHUB_OUTPUT"
+          echo "Using Minecraft $mc and Fabric loader $loader from $PACK_DIR"
+
+      - name: Compute mod download cache key
+        id: pack-key
+        shell: bash
+        run: |
+          key=$(find "$PACK_DIR" -type f \( -name '*.pw.toml' -o -name 'index.toml' \) -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | sha256sum \
+            | cut -d' ' -f1)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Packwiz downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/dbop-mods
+          key: dbop-client-mods-${{ steps.pack-key.outputs.key }}
+          restore-keys: |
+            dbop-client-mods-
+
+      - name: Cache Minecraft assets
+        uses: actions/cache@v4
+        with:
+          path: ~/.minecraft/assets
+          key: minecraft-assets-${{ runner.os }}-${{ env.MC_VERSION }}
+          restore-keys: |
+            minecraft-assets-${{ runner.os }}-
+
+      - name: Stage Packwiz client files
+        run: |
+          python3 .github/scripts/download_packwiz_client.py \
+            --pack-dir "$PACK_DIR" \
+            --dest run \
+            --cache-dir "$HOME/.cache/dbop-mods" \
+            --jobs 6
+
+      - name: Show staged mod count
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("run/dbop-mods-manifest.json").read_text())
+          mods = [item for item in manifest["files"] if item["destination"].startswith("mods/")]
+          print(f"Staged {len(mods)} mod(s) for {manifest['pack']['name']} {manifest['pack']['version']}")
+          for item in mods:
+              print(f"  {item['filename']}")
+          PY
+
+      - name: Create runtime directories
+        run: mkdir -p HeadlessMC run/mods
+
+      - name: Download HeadlessMC
+        uses: robinraju/release-downloader@v1.13
+        with:
+          repository: headlesshq/headlessmc
+          tag: ${{ env.HMC_VERSION }}
+          fileName: headlessmc.jar
+
+      - name: Download mc-runtime-test mod
+        uses: robinraju/release-downloader@v1.13
+        with:
+          repository: headlesshq/mc-runtime-test-mod
+          tag: ${{ env.MC_VERSION }}-${{ env.MCRT_VERSION }}
+          fileName: "mc-runtime-test-${{ env.MC_VERSION }}-fabric-${{ env.MCRT_VERSION }}.jar"
+          out-file-path: run/mods
+
+      - name: List installed mod jars
+        shell: bash
+        run: |
+          echo "Installed $(find run/mods -maxdepth 1 -name '*.jar' | wc -l) jar(s)"
+          find run/mods -maxdepth 1 -name '*.jar' -printf '%f\n' | sort
+
+      - name: Configure HeadlessMC
+        shell: bash
+        run: |
+          mkdir -p HeadlessMC run/mods
+          cat > HeadlessMC/config.properties <<EOF
+          hmc.java.versions=$GAME_JAVA_HOME
+          hmc.files.game=$PWD/run
+          hmc.files.game-for-each-version=false
+          hmc.files.mc=$HOME/.minecraft
+          hmc.jline.enabled=false
+          hmc.launcher.crash-report-watcher=true
+          hmc.assets.dummy=false
+          hmc.xvfb.check=true
+          EOF
+          echo "HMC_FILES_LOCATION=$PWD/HeadlessMC" >> "$GITHUB_ENV"
+
+      - name: Install Minecraft and the pack's Fabric loader
+        env:
+          FABRIC_LOADER: ${{ steps.pack-meta.outputs.fabric_loader }}
+        run: |
+          "$HMC_JAVA" -jar headlessmc.jar version install fabric "$MC_VERSION" "$FABRIC_LOADER"
+
+      - name: Install virtual display
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            xvfb x11-xserver-utils libgl1-mesa-dri mesa-vulkan-drivers
+
+      - name: Configure game options
+        shell: bash
+        run: |
+          mkdir -p run
+          cat >> run/options.txt <<'EOF'
+          onboardAccessibility:false
+          pauseOnLostFocus:false
+          narrator:0
+          EOF
+
+      # This is the actual game launch.  HeadlessMC starts a real Fabric client
+      # under Xvfb; mc-runtime-test joins a singleplayer world and quits after
+      # the world loads.  Xvfb also stops HeadlessMC from enabling its LWJGL
+      # headless patcher, which Sodium (correctly) refuses to run with.
+      - name: Run actual Minecraft Fabric client (headless)
+        id: minecraft
+        shell: bash
+        env:
+          FABRIC_LOADER: ${{ steps.pack-meta.outputs.fabric_loader }}
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          timeout --kill-after=60s 30m \
+            xvfb-run -a -s "-screen 0 1920x1080x24 +extension GLX +render -noreset" \
+              "$HMC_JAVA" -Dhmc.xvfb.check=true -jar headlessmc.jar launch --offline \
+              --jvm "-Djava.awt.headless=true -Xmx4G" \
+              fabric "$MC_VERSION" "$FABRIC_LOADER"
+
+      - name: Show Minecraft log tail
+        if: always()
+        shell: bash
+        run: |
+          if [ -f run/logs/latest.log ]; then
+            echo "----- run/logs/latest.log (tail) -----"
+            tail -n 100 run/logs/latest.log
+          else
+            echo "run/logs/latest.log was not created"
+          fi
+          if ls run/crash-reports/*.txt >/dev/null 2>&1; then
+            echo "----- crash report -----"
+            cat "$(ls -t run/crash-reports/*.txt | head -n 1)"
+          fi
+
+      - name: Analyse log and identify the crashing mod
+        id: analyze
+        if: always()
+        continue-on-error: true
+        env:
+          GAME_OUTCOME: ${{ steps.minecraft.outcome }}
+        run: |
+          python3 .github/scripts/analyze_minecraft_logs.py \
+            --run-dir run \
+            --hmc-dir HeadlessMC \
+            --pack-dir "$PACK_DIR" \
+            --game-outcome "$GAME_OUTCOME" \
+            --strict \
+            --json artifacts/minecraft-test.json \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Show analysis result
+        if: always()
+        shell: bash
+        run: |
+          if [ -f artifacts/minecraft-test.json ]; then
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path("artifacts/minecraft-test.json").read_text())
+          print(json.dumps(
+              {
+                  "status": result["status"],
+                  "passed": result["passed"],
+                  "reason": result["reason"],
+                  "suspects": [
+                      {"name": item["name"], "id": item["id"], "score": item["score"]}
+                      for item in result["suspects"]
+                  ],
+              },
+              indent=2,
+          ))
+          PY
+          else
+            echo "artifacts/minecraft-test.json is missing"
+          fi
+
+      - name: Ensure artifact directories exist
+        if: always()
+        run: mkdir -p artifacts run/logs run/crash-reports HeadlessMC/logs
+
+      - name: Upload Minecraft test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: minecraft-client-test-${{ env.MC_VERSION }}
+          path: |
+            artifacts/
+            run/logs/
+            run/crash-reports/
+            run/dbop-mods-manifest.json
+            HeadlessMC/logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail when Minecraft crashed or logged a fatal error
+        if: always()
+        shell: bash
+        run: |
+          status="${{ steps.analyze.outputs.status }}"
+          echo "Analysis status: ${status:-missing}"
+          if [ "${status:-}" != "pass" ]; then
+            echo "::error title=Minecraft Fabric client test failed::status=${status:-missing}; see the step summary and the uploaded minecraft-client-test-${MC_VERSION} artifact."
+            exit 1
+          fi

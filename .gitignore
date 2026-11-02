@@ -4,3 +4,9 @@
 *.jar
 packwiz/packwiz.exe
 packwiz/packwiz
+
+# Local output of the Minecraft client test harness
+/run/
+/HeadlessMC/
+/artifacts/
+__pycache__/

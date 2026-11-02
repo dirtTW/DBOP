@@ -64,6 +64,32 @@ def next_migration_pack_version(
     return increment_patch_version(pack_version)
 
 
+def latest_stable_fabric_loader(minecraft_version: str) -> str:
+    loaders = fetch_json(FABRIC_LOADER_URL.format(version=minecraft_version))
+    stable_loaders = [
+        entry["loader"]["version"] for entry in loaders if entry["loader"]["stable"]
+    ]
+    if not stable_loaders:
+        raise RuntimeError(
+            f"No stable Fabric Loader build is available for Minecraft {minecraft_version}"
+        )
+    return stable_loaders[0]
+
+
+def update_fabric_loader_dependencies(pack_dir: Path, loader_version: str) -> None:
+    dependencies_path = pack_dir / "config" / "fabric_loader_dependencies.json"
+    if not dependencies_path.exists():
+        return
+    dependencies = json.loads(dependencies_path.read_text(encoding="utf-8"))
+    overrides = dependencies.setdefault("overrides", {})
+    fabric_loader = overrides.setdefault("fabricloader", {}).setdefault("+depends", {})
+    fabric_loader["fabricloader"] = f">={loader_version}"
+    dependencies_path.write_text(
+        json.dumps(dependencies, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
 def update_pack_version_files(pack_dir: Path, source_version: str, target_version: str) -> None:
     pack_path = pack_dir / "pack.toml"
     pack = pack_path.read_text(encoding="utf-8")
@@ -118,13 +144,21 @@ def main() -> None:
             raise ValueError(f"Could not read pack version from {target_dir / 'pack.toml'}")
         source_pack_version = pack_version_match.group(1)
         target_pack_version = increment_patch_version(source_pack_version)
+        loader_version = latest_stable_fabric_loader(target_version)
+        pack_contents = replace_toml_value(pack_contents, "fabric", loader_version)
+        (target_dir / "pack.toml").write_text(pack_contents, encoding="utf-8")
+        update_fabric_loader_dependencies(target_dir, loader_version)
         update_pack_version_files(target_dir, source_pack_version, target_pack_version)
-        print(f"Prepared existing Minecraft {target_version} pack v{target_pack_version} for mod updates.")
+        print(
+            f"Prepared existing Minecraft {target_version} pack v{target_pack_version} "
+            f"with Fabric Loader {loader_version} for mod updates."
+        )
         set_output("skip", "false")
         set_output("target_version", target_version)
         set_output("source_version", target_version)
         set_output("source_pack_version", source_pack_version)
         set_output("target_pack_version", target_pack_version)
+        set_output("fabric_loader", loader_version)
         return
 
     if target_dir.exists():
@@ -149,11 +183,7 @@ def main() -> None:
     )
     source_version = source_dir.name
 
-    loaders = fetch_json(FABRIC_LOADER_URL.format(version=target_version))
-    stable_loaders = [entry["loader"]["version"] for entry in loaders if entry["loader"]["stable"]]
-    if not stable_loaders:
-        raise RuntimeError(f"No stable Fabric Loader build is available for Minecraft {target_version}")
-    loader_version = stable_loaders[0]
+    loader_version = latest_stable_fabric_loader(target_version)
 
     source_pack = (source_dir / "pack.toml").read_text(encoding="utf-8")
     source_name_match = re.search(r'^name\s*=\s*"([^"]+)"\s*$', source_pack, re.MULTILINE)
@@ -187,11 +217,9 @@ def main() -> None:
     dependencies_path = target_dir / "config" / "fabric_loader_dependencies.json"
     if not dependencies_path.exists():
         raise FileNotFoundError(f"Missing Fabric dependency overrides: {dependencies_path}")
+    update_fabric_loader_dependencies(target_dir, loader_version)
     dependencies = json.loads(dependencies_path.read_text(encoding="utf-8"))
     overrides = dependencies.setdefault("overrides", {})
-    fabric_loader = overrides.setdefault("fabricloader", {}).setdefault("+depends", {})
-    fabric_loader["fabricloader"] = f">={loader_version}"
-
     recommendations = overrides.setdefault("minecraft", {}).setdefault("+recommends", {})
     old_name = source_name_match.group(1)
     old_version_constraint = recommendations.pop(old_name, None)
