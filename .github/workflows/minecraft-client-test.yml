@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -159,7 +159,7 @@ jobs:
           path: ${{ env.PACK_ARTIFACT_PATH }}
 
       - name: Set up Java for Minecraft
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: ${{ steps.resolve.outputs.java_version || env.JAVA_VERSION }}
@@ -169,7 +169,7 @@ jobs:
         run: echo "GAME_JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
 
       - name: Set up Java for HeadlessMC
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "25"
@@ -179,7 +179,7 @@ jobs:
         run: echo "HMC_JAVA=$JAVA_HOME/bin/java" >> "$GITHUB_ENV"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -221,7 +221,7 @@ jobs:
           echo "key=$key" >> "$GITHUB_OUTPUT"
 
       - name: Cache Packwiz downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/dbop-mods
           key: dbop-client-mods-${{ steps.pack-key.outputs.key }}
@@ -229,7 +229,7 @@ jobs:
             dbop-client-mods-
 
       - name: Cache Minecraft assets
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.minecraft/assets
           key: minecraft-assets-${{ runner.os }}-${{ env.MC_VERSION }}
