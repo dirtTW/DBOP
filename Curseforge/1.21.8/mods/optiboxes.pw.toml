@@ -1,13 +1,13 @@
-name = "Optiboxes"
-filename = "optiboxes-1.6+1.21.8-fabric.jar"
+name = "Skyboxify"
+filename = "skyboxify-3.5-1.21.8-fabric.jar"
 side = "both"
 
 [download]
 hash-format = "sha1"
-hash = "29939cb6a95e50b1753592413576196ffd47bc69"
+hash = "9dc209dea3fd7b70d5674b73b0bcc35fdbf3e2d9"
 mode = "metadata:curseforge"
 
 [update]
 [update.curseforge]
-file-id = 7054256
+file-id = 9366865
 project-id = 1301799
