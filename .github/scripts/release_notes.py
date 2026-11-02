@@ -32,11 +32,12 @@ def extract_section(changelog: str, version: str) -> str:
 
 def count_mod_updates(section: str) -> int:
     """Count the indented mod bullets under the changelog's Update mods list."""
-    return sum(
-        1
-        for line in section.splitlines()
-        if re.match(r"^\s{2,}-\s+\S", line)
-    )
+    count = 0
+    for line in section.splitlines():
+        match = re.match(r"^\s{2,}-\s+(\S.*)$", line)
+        if match and match.group(1).strip().lower() != "no mod updates":
+            count += 1
+    return count
 
 
 def build_notes(changelog: str, version: str, minecraft: str) -> tuple[str, int]:
