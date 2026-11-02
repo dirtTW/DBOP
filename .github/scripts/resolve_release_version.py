@@ -13,11 +13,17 @@ except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore
 
 
-def find_pack_for_version(pack_root: Path, version: str) -> tuple[str, str]:
-    """Return (folder_name, minecraft_version) for a pack version."""
+def normalize_version(version: str) -> str:
+    """Strip an optional ``v`` prefix and a ``test-`` release tag prefix."""
     normalized = version[1:] if version.lower().startswith("v") else version
     if normalized.lower().startswith("test-"):
         normalized = normalized[5:]
+    return normalized
+
+
+def find_pack_for_version(pack_root: Path, version: str) -> tuple[str, str]:
+    """Return (folder_name, minecraft_version) for a pack version."""
+    normalized = normalize_version(version)
     for path in sorted(pack_root.glob("*/pack.toml")):
         try:
             data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
@@ -48,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     values = {
         "pack_folder": folder,
         "pack_dir": (args.pack_root / folder).as_posix(),
+        "pack_version": normalize_version(args.version),
         "minecraft_version": minecraft,
     }
     for key, value in values.items():
