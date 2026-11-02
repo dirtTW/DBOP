@@ -79,7 +79,7 @@ jobs:
           MOD_UPDATES: ${{ needs.update.outputs.mod_updates }}
           TEST_RELEASE: ${{ inputs.test_release || false }}
           NOTES_FILE: ${{ steps.notes.outputs.notes_file }}
-          PR_BRANCH: ${{ needs.update.outputs.pr_branch }}
+          PR_SHA: ${{ needs.update.outputs.pr_sha }}
         run: |
           if [ "${TEST_RELEASE}" = "true" ]; then
             tag="test-${PACK_VERSION}"
@@ -95,7 +95,7 @@ jobs:
           fi
           gh release create "${tag}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --target "${PR_BRANCH}" \
+            --target "${PR_SHA}" \
             --title "${title}" \
             --notes-file "${NOTES_FILE}" \
             --draft
