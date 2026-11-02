@@ -25,6 +25,8 @@ What it does for one Minecraft version:
    - CurseForge-only native mods are always kept.
 4. ``packwiz update --all`` in ``Curseforge/<version>``, then refresh both
    packs (unless ``--no-update`` / ``--no-refresh``).
+5. Exports ``Packwiz/<version>/DBOP-<pack-version>.mrpack`` for a quick
+   Prism Launcher drag-and-drop test (unless ``--no-export``).
 
 The script never edits mods in place outside the two pack folders. Commit the
 result afterwards so both pack formats stay in one change.
@@ -234,6 +236,7 @@ def create_version(
     packwiz: str = "packwiz",
     update: bool = True,
     refresh: bool = True,
+    export: bool = False,
     dry_run: bool = False,
     force: bool = False,
 ) -> list[str]:
@@ -275,6 +278,10 @@ def create_version(
     ]
     if dry_run:
         log.append(f"would create Packwiz/{target_version} and Curseforge/{target_version}")
+        if export:
+            log.append(
+                f"would export Packwiz/{target_version}/DBOP-{target_pack_version}.mrpack"
+            )
         return log
 
     if force:
@@ -325,19 +332,13 @@ def create_version(
                 target_version,
                 packwiz=packwiz,
                 update=False,
-                refresh=False,
+                refresh=refresh,
+                export=export,
                 dry_run=False,
             )
         )
     except Exception as exc:  # noqa: BLE001
         log.append(f"WARNING: initial sync failed: {exc}")
-
-    if refresh:
-        for target in (packwiz_target, curseforge_target):
-            try:
-                run_packwiz(packwiz, target, ["refresh"], log)
-            except RuntimeError as exc:
-                log.append(f"WARNING: {exc}")
 
     log.append(
         f"Created Packwiz/{target_version} and Curseforge/{target_version} "
@@ -469,6 +470,23 @@ def sync_meta_folder(
     )
 
 
+def export_mrpack(
+    packwiz: str, packwiz_dir: Path, log: list[str], dry_run: bool = False
+) -> Path:
+    pack = read_pack_versions(packwiz_dir)
+    tag = pack["version"] or packwiz_dir.name
+    output = packwiz_dir / f"DBOP-{tag}.mrpack"
+    log.append(f"mrpack -> {output}")
+    if not dry_run:
+        run_packwiz(
+            packwiz,
+            packwiz_dir,
+            ["modrinth", "export", "-o", output.name],
+            log,
+        )
+    return output
+
+
 def run_packwiz(packwiz: str, cwd: Path, args: list[str], log: list[str]) -> None:
     command = [packwiz, "--yes", *args]
     log.append(f"[{cwd.parent.name}/{cwd.name}] {' '.join(command)}")
@@ -486,6 +504,7 @@ def sync_version(
     refresh: bool = True,
     dry_run: bool = False,
     keep_extra: bool = False,
+    export: bool = False,
     aliases: dict[str, str] | None = None,
 ) -> list[str]:
     packwiz_dir = root / "Packwiz" / version
@@ -528,6 +547,8 @@ def sync_version(
     if refresh and not dry_run:
         run_packwiz(packwiz, packwiz_dir, ["refresh"], log)
         run_packwiz(packwiz, curseforge_dir, ["refresh"], log)
+    if export:
+        export_mrpack(packwiz, packwiz_dir, log, dry_run=dry_run)
 
     return log
 
@@ -562,6 +583,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--packwiz", default="packwiz", help="packwiz executable (default: packwiz)")
     parser.add_argument("--no-update", action="store_true", help="Do not run packwiz update --all")
     parser.add_argument("--no-refresh", action="store_true", help="Do not run packwiz refresh")
+    parser.add_argument("--no-export", action="store_true", help="Do not create the local .mrpack")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing files")
     parser.add_argument(
         "--keep-extra",
@@ -593,6 +615,7 @@ def main(argv: list[str] | None = None) -> int:
                 packwiz=args.packwiz,
                 update=not args.no_update,
                 refresh=not args.no_refresh,
+                export=not args.no_export,
                 dry_run=args.dry_run,
                 force=args.force,
             )
@@ -624,6 +647,7 @@ def main(argv: list[str] | None = None) -> int:
                 refresh=not args.no_refresh,
                 dry_run=args.dry_run,
                 keep_extra=args.keep_extra,
+                export=not args.no_export,
                 aliases=aliases,
             )
             print("\n".join(log))
