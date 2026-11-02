@@ -1,4 +1,5 @@
 name: 🚀 Auto publish release
+
 on:
   release:
     types: [published]
@@ -17,23 +18,44 @@ on:
           - all
           - curseforge
           - modrinth
+      minimum_mod_updates:
+        description: Minimum changed mods required to publish
+        required: false
+        default: "3"
+        type: string
+      dry_run:
+        description: Build and verify assets without publishing
+        required: false
+        default: false
+        type: boolean
 
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  MIN_UPDATES: ${{ inputs.minimum_mod_updates || '3' }}
 
 jobs:
   prepare:
-    name: 🔎 Resolve release pack
+    name: 🔎 Resolve pack and release gate
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     outputs:
       minecraft_version: ${{ steps.resolve.outputs.minecraft_version }}
       pack_folder: ${{ steps.resolve.outputs.pack_folder }}
-      pack_dir: ${{ steps.resolve.outputs.pack_dir }}
+      mod_updates: ${{ steps.mods.outputs.mod_updates }}
+      publish_allowed: ${{ steps.mods.outputs.publish_allowed }}
+      notes_file: ${{ steps.notes.outputs.notes_file }}
     steps:
-      - name: Check out release
+      - name: Check out tooling
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Check out release pack
         uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
+          path: release
 
       - name: Resolve Minecraft version from pack version
         id: resolve
@@ -41,14 +63,88 @@ jobs:
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
           python3 .github/scripts/resolve_release_version.py \
-            --pack-root Packwiz \
+            --pack-root release/Packwiz \
             --version "$RELEASE_TAG" \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Count updated mods and apply release threshold
+        id: mods
+        shell: bash
+        env:
+          PACK_FOLDER: ${{ steps.resolve.outputs.pack_folder }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          MIN_UPDATES: ${{ env.MIN_UPDATES }}
+        run: |
+          count=$(python3 .github/scripts/release_notes.py \
+            --changelog "release/Packwiz/${PACK_FOLDER}/changelog.md" \
+            --version "${RELEASE_TAG}" \
+            --count-only)
+          echo "mod_updates=${count}" >> "$GITHUB_OUTPUT"
+          if [ "${count}" -ge "${MIN_UPDATES:-3}" ]; then
+            echo "publish_allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish_allowed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release notes from changelog
+        id: notes
+        if: steps.mods.outputs.publish_allowed == 'true'
+        shell: bash
+        env:
+          PACK_FOLDER: ${{ steps.resolve.outputs.pack_folder }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          MINECRAFT_VERSION: ${{ steps.resolve.outputs.minecraft_version }}
+        run: |
+          notes="${RUNNER_TEMP}/release-notes-${RELEASE_TAG}.md"
+          python3 .github/scripts/release_notes.py \
+            --changelog "release/Packwiz/${PACK_FOLDER}/changelog.md" \
+            --version "${RELEASE_TAG}" \
+            --minecraft "${MINECRAFT_VERSION}" \
+            --output "${notes}"
+          echo "notes_file=${notes}" >> "$GITHUB_OUTPUT"
+
+      - name: Update GitHub release notes
+        if: steps.mods.outputs.publish_allowed == 'true' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "$RELEASE_TAG" \
+            --notes-file "${{ steps.notes.outputs.notes_file }}" \
+            --repo "${{ github.repository }}"
+
+      - name: Upload dry-run release notes
+        if: inputs.dry_run == true && steps.notes.outputs.notes_file != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-notes-${{ env.RELEASE_TAG }}
+          path: ${{ steps.notes.outputs.notes_file }}
+
+      - name: Release gate summary
+        if: always()
+        shell: bash
+        env:
+          MINECRAFT_VERSION: ${{ steps.resolve.outputs.minecraft_version }}
+          MOD_UPDATES: ${{ steps.mods.outputs.mod_updates }}
+          MIN_UPDATES: ${{ env.MIN_UPDATES }}
+          ALLOWED: ${{ steps.mods.outputs.publish_allowed }}
+        run: |
+          {
+            echo "## 🚀 Release gate"
+            echo ""
+            echo "- Minecraft: **${MINECRAFT_VERSION:-unknown}**"
+            echo "- Changed mods: **${MOD_UPDATES:-0}**"
+            echo "- Threshold: **${MIN_UPDATES:-3}**"
+            if [ "${ALLOWED}" = "true" ]; then
+              echo "- ✅ Publishing allowed"
+            else
+              echo "- ⏸️ Publishing blocked: not enough mod updates"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   publish-to-curseforge:
     name: ✅ Publish to CurseForge
     needs: prepare
-    if: github.repository_owner == 'dirtTW' && (github.event_name == 'release' || inputs.target == 'all' || inputs.target == 'curseforge')
+    if: github.repository_owner == 'dirtTW' && needs.prepare.outputs.publish_allowed == 'true' && (github.event_name == 'release' || inputs.target == 'all' || inputs.target == 'curseforge')
     runs-on: ubuntu-24.04
     environment: github-actions
     permissions:
@@ -76,6 +172,7 @@ jobs:
           popd
 
       - name: Publish to CurseForge
+        if: inputs.dry_run != true
         uses: Kira-NT/mc-publish@v3.3.2
         with:
           name: MC ${{ needs.prepare.outputs.minecraft_version }} DBOP v${{ env.RELEASE_TAG }}
@@ -86,6 +183,7 @@ jobs:
           game-versions: ${{ needs.prepare.outputs.minecraft_version }}
 
       - name: Upload CurseForge zip to release
+        if: inputs.dry_run != true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -93,10 +191,17 @@ jobs:
             "DBOP.MC.${{ needs.prepare.outputs.minecraft_version }}-${{ env.RELEASE_TAG }}.zip" \
             --repo "${{ github.repository }}" --clobber
 
+      - name: Upload dry-run CurseForge zip
+        if: inputs.dry_run == true
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-${{ env.RELEASE_TAG }}-curseforge
+          path: DBOP.MC.${{ needs.prepare.outputs.minecraft_version }}-${{ env.RELEASE_TAG }}.zip
+
   publish-to-modrinth:
     name: ✅ Publish to Modrinth
     needs: prepare
-    if: github.repository_owner == 'dirttw' && (github.event_name == 'release' || inputs.target == 'all' || inputs.target == 'modrinth')
+    if: github.repository_owner == 'dirttw' && needs.prepare.outputs.publish_allowed == 'true' && (github.event_name == 'release' || inputs.target == 'all' || inputs.target == 'modrinth')
     runs-on: ubuntu-24.04
     environment: github-actions
     permissions:
@@ -108,34 +213,43 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
+
       - name: Set up Node.js LTS
         uses: actions/setup-node@v7
         with:
           node-version: "26"
+
       - name: Check workflow formatting
         run: npx --yes prettier@3.9.10 --check .github/workflows/autopublish.yml
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version: "1.27.x"
           cache: false
+
       - name: Install Packwiz
         run: go install github.com/packwiz/packwiz@latest
+
       - name: Export to packwiz
         run: |
-          pushd "${{ needs.prepare.outputs.pack_dir }}"
+          pushd "Packwiz/${{ needs.prepare.outputs.pack_folder }}"
           "$(go env GOPATH)/bin/packwiz" modrinth export -o ../../DBOP-${{ env.RELEASE_TAG }}.mrpack
           popd
+
       - name: Attest mrpack
         id: attest-mrpack
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: DBOP-${{ env.RELEASE_TAG }}.mrpack
+
       - name: Copy and zip attestation
         run: |
           cp ${{ steps.attest-mrpack.outputs.bundle-path }} cosign-bundle.json
           zip cosign-bundle.zip cosign-bundle.json
+
       - name: Publish to Modrinth
+        if: inputs.dry_run != true
         uses: Kira-NT/mc-publish@v3.3.2
         with:
           name: MC ${{ needs.prepare.outputs.minecraft_version }} DBOP v${{ env.RELEASE_TAG }}
@@ -145,7 +259,18 @@ jobs:
           files: DBOP-${{ env.RELEASE_TAG }}.mrpack
           loaders: fabric
           game-versions: ${{ needs.prepare.outputs.minecraft_version }}
+
       - name: Upload to Github
+        if: inputs.dry_run != true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$RELEASE_TAG" "DBOP-${{ env.RELEASE_TAG }}.mrpack" --repo "${{ github.repository }}" --clobber
+
+      - name: Upload dry-run Modrinth assets
+        if: inputs.dry_run == true
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-${{ env.RELEASE_TAG }}-modrinth
+          path: |
+            DBOP-${{ env.RELEASE_TAG }}.mrpack
+            cosign-bundle.zip
