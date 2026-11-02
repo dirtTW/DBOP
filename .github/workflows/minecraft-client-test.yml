@@ -261,19 +261,24 @@ jobs:
         run: mkdir -p HeadlessMC run/mods
 
       - name: Download HeadlessMC
-        uses: robinraju/release-downloader@v1.13
-        with:
-          repository: headlesshq/headlessmc
-          tag: ${{ env.HMC_VERSION }}
-          fileName: headlessmc.jar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "$HMC_VERSION" \
+            --repo headlesshq/headlessmc \
+            --pattern headlessmc.jar \
+            --dir . \
+            --clobber
 
       - name: Download mc-runtime-test mod
-        uses: robinraju/release-downloader@v1.13
-        with:
-          repository: headlesshq/mc-runtime-test-mod
-          tag: ${{ env.MC_VERSION }}-${{ env.MCRT_VERSION }}
-          fileName: "mc-runtime-test-${{ env.MC_VERSION }}-fabric-${{ env.MCRT_VERSION }}.jar"
-          out-file-path: run/mods
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "$MC_VERSION-$MCRT_VERSION" \
+            --repo headlesshq/mc-runtime-test-mod \
+            --pattern "mc-runtime-test-$MC_VERSION-fabric-$MCRT_VERSION.jar" \
+            --dir run/mods \
+            --clobber
 
       - name: List installed mod jars
         shell: bash
