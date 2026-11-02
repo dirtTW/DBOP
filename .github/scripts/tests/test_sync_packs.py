@@ -66,6 +66,15 @@ class SyncPacksTest(unittest.TestCase):
         (self.cf / "config" / "shared.json").write_text('{"old": true}\n', encoding="utf-8")
         (self.cf / "config" / "stale.json").write_text("{}\n", encoding="utf-8")
         (self.pw / "changelog.md").write_text("v0.6.2\n", encoding="utf-8")
+        for pack in (self.pw, self.cf):
+            (pack / "config" / "isxander-main-menu-credits.json").write_text(
+                '{"text":"DBOP v0.6.2"}\n', encoding="utf-8"
+            )
+            (pack / "config" / "fabric_loader_dependencies.json").write_text(
+                '{"overrides":{"fabricloader":{"+depends":{"fabricloader":">=0.17.2"}},'
+                '"minecraft":{"+recommends":{"DBOP MC 1.21.8":">0.6.1"}}}}\n',
+                encoding="utf-8",
+            )
 
         (self.pw / "mods" / "common.pw.toml").write_text(
             meta("Common Mod", "common-2.jar"), encoding="utf-8"
@@ -141,6 +150,66 @@ class SyncPacksTest(unittest.TestCase):
             sync_packs.normalize_name("Server Resource Pack Checker"),
             "server resource pack checker",
         )
+
+    def test_create_new_version_copies_and_bumps(self) -> None:
+        log = sync_packs.create_version(
+            self.root,
+            "1.21.9",
+            source_version="1.21.8",
+            fabric_loader="0.20.1",
+            update=False,
+            refresh=False,
+        )
+        target = self.root / "Packwiz" / "1.21.9"
+        target_cf = self.root / "Curseforge" / "1.21.9"
+        self.assertTrue((target / "pack.toml").is_file())
+        self.assertTrue((target_cf / "pack.toml").is_file())
+        pack = (target / "pack.toml").read_text(encoding="utf-8")
+        self.assertIn('name = "DBOP MC 1.21.9"', pack)
+        self.assertIn('version = "0.6.3"', pack)
+        self.assertIn('fabric = "0.20.1"', pack)
+        self.assertIn('minecraft = "1.21.9"', pack)
+        self.assertTrue((target / "mods" / "common.pw.toml").is_file())
+
+        credits = (target / "config" / "isxander-main-menu-credits.json").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("v0.6.3", credits)
+        deps = (target / "config" / "fabric_loader_dependencies.json").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"fabricloader": ">=0.20.1"', deps)
+        self.assertIn('"DBOP MC 1.21.9"', deps)
+        changelog = (target / "changelog.md").read_text(encoding="utf-8")
+        self.assertIn("Minecraft 1.21.9", changelog)
+        self.assertTrue(any("Created Packwiz/1.21.9" in line for line in log))
+
+    def test_create_uses_minor_bump_for_new_series(self) -> None:
+        self.assertEqual(
+            sync_packs.next_pack_version("0.6.2", "1.21.8", "26.3"), "0.7.0"
+        )
+        self.assertEqual(
+            sync_packs.next_pack_version("0.6.2", "1.21.8", "1.21.9"), "0.6.3"
+        )
+
+    def test_create_refuses_existing_target_without_force(self) -> None:
+        sync_packs.create_version(
+            self.root,
+            "1.21.9",
+            source_version="1.21.8",
+            fabric_loader="0.20.1",
+            update=False,
+            refresh=False,
+        )
+        with self.assertRaises(FileExistsError):
+            sync_packs.create_version(
+                self.root,
+                "1.21.9",
+                source_version="1.21.8",
+                fabric_loader="0.20.1",
+                update=False,
+                refresh=False,
+            )
 
 
 if __name__ == "__main__":
