@@ -20,20 +20,22 @@ class DownloadPlanTest(unittest.TestCase):
         plans, skipped, pack = downloader.load_plan(self.pack_dir, Path("run"), client_only=True)
 
         self.assertEqual(pack["minecraft"], "1.21.8")
-        self.assertEqual(pack["fabric"], "0.17.2")
+        # The pack's loader is intentionally bumped by the update workflow, so
+        # only require a valid Fabric loader version here.
+        self.assertRegex(pack["fabric"], r"^\d+\.\d+\.\d+$")
 
         mods = [plan for plan in plans if plan.kind == "download" and plan.destination.startswith("mods/")]
         self.assertGreaterEqual(len(mods), 50)
         self.assertTrue(all(plan.url and plan.digest for plan in mods))
         self.assertTrue(all(plan.hash_format in downloader.HASH_NAMES for plan in mods))
 
-        skipped_names = {plan.filename for plan in skipped}
-        self.assertIn("e4mc_minecraft-fabric-5.4.1.jar", skipped_names)
+        skipped_names = {plan.name for plan in skipped}
+        self.assertIn("e4mc", skipped_names)
 
         chat_heads = next(plan for plan in mods if plan.name == "Chat Heads")
-        self.assertEqual(chat_heads.filename, "chat_heads-0.14.0-fabric-1.21.6.jar")
-        self.assertEqual(chat_heads.destination, "mods/chat_heads-0.14.0-fabric-1.21.6.jar")
-        self.assertEqual(chat_heads.hash_format, "sha512")
+        self.assertTrue(chat_heads.filename.endswith(".jar"))
+        self.assertEqual(chat_heads.destination, f"mods/{chat_heads.filename}")
+        self.assertIn(chat_heads.hash_format, downloader.HASH_NAMES)
 
     def test_overrides_are_copied_from_the_pack(self) -> None:
         plans, _, _ = downloader.load_plan(self.pack_dir, Path("run"), client_only=True)
