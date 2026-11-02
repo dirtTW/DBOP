@@ -1,4 +1,4 @@
-name: Python tests
+name: 🧪 Python tests
 
 # Lightweight unit tests for the local tooling. The full Minecraft client test
 # is intentionally not triggered by script/test-only changes.
@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   test:
-    name: Run Python unit tests
+    name: 🧪 Run Python unit tests
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository

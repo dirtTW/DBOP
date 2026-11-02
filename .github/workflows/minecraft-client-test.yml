@@ -1,4 +1,4 @@
-name: Minecraft Fabric client test
+name: ✅ Minecraft Fabric client test
 
 # Launches the real Minecraft client (not a server) with the Packwiz mod set in
 # a headless CI environment.  If the client crashes, the log analysis step
@@ -13,25 +13,25 @@ on:
   workflow_dispatch:
     inputs:
       minecraft_version:
-        description: Packwiz/Minecraft version to test
-        required: true
-        default: "1.21.8"
+        description: Packwiz/Minecraft version to test (blank = latest DBOP pack)
+        required: false
+        default: ""
       java_version:
-        description: Java major version used to run Minecraft (17 for 1.20.x, 21 for 1.21.x)
-        required: true
-        default: "21"
+        description: Java major version (blank = infer from Minecraft version)
+        required: false
+        default: ""
   workflow_call:
     inputs:
       minecraft_version:
-        description: Packwiz/Minecraft version to test
+        description: Packwiz/Minecraft version to test (blank = latest DBOP pack)
         required: false
         type: string
-        default: "1.21.8"
+        default: ""
       java_version:
-        description: Java major version used to run Minecraft
+        description: Java major version (blank = infer from Minecraft version)
         required: false
         type: string
-        default: "21"
+        default: ""
       pack_artifact:
         description: Optional artifact containing an updated Packwiz folder to test instead of the checked-out pack
         required: false
@@ -42,12 +42,8 @@ on:
         required: false
         type: string
         default: ""
-  # Tag pushes (releases) and explicit dispatches are the only automatic entry
-  # points. The migrate workflow calls this reusable workflow with the exact
-  # pack artifact and Minecraft version under test.
-  push:
-    tags:
-      - "*"
+  # Manual dispatch after a PR is merged, or a reusable call from the
+  # update/migrate workflow with the exact pack artifact under test.
 
 permissions:
   contents: read
@@ -58,9 +54,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MC_VERSION: ${{ inputs.minecraft_version || github.event.inputs.minecraft_version || '1.21.8' }}
-  JAVA_VERSION: ${{ inputs.java_version || github.event.inputs.java_version || '21' }}
-  PACK_DIR: Packwiz/${{ inputs.minecraft_version || github.event.inputs.minecraft_version || '1.21.8' }}
+  MC_VERSION: ${{ inputs.minecraft_version || '' }}
+  JAVA_VERSION: ${{ inputs.java_version || '' }}
+  PACK_DIR: Packwiz/${{ inputs.minecraft_version || '' }}
   PACK_ARTIFACT: ${{ inputs.pack_artifact || '' }}
   PACK_ARTIFACT_PATH: ${{ inputs.pack_artifact_path || '' }}
   HMC_VERSION: "3.0.0-RC8"
@@ -68,7 +64,7 @@ env:
 
 jobs:
   analyzer-tests:
-    name: Test downloader and crash attribution
+    name: ✅ Test downloader and crash attribution
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -83,13 +79,63 @@ jobs:
         run: python -m unittest discover -s .github/scripts/tests -v
 
   client-test:
-    name: Launch Minecraft ${{ inputs.minecraft_version || github.event.inputs.minecraft_version || '1.21.8' }} with Fabric
+    name: 🎮 Launch Minecraft (headless)
     needs: analyzer-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+
+      - name: Resolve pack version and Java
+        id: resolve
+        if: env.MC_VERSION == '' || env.JAVA_VERSION == ''
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          requested = os.environ.get("MC_VERSION", "").strip()
+          if requested:
+              folder = requested
+              pack_path = Path("Packwiz") / folder / "pack.toml"
+              pack = tomllib.loads(pack_path.read_text(encoding="utf-8-sig"))
+          else:
+              candidates = []
+              for path in Path("Packwiz").glob("*/pack.toml"):
+                  try:
+                      data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
+                      version = tuple(int(part) for part in data["version"].split("."))
+                      mc = tuple(int(part) for part in data["versions"]["minecraft"].split("."))
+                  except Exception:
+                      continue
+                  candidates.append((version, mc, path.parent.name, data))
+              if not candidates:
+                  raise SystemExit("No Packwiz pack folders found")
+              _, _, folder, pack = max(candidates, key=lambda item: (item[0], item[1]))
+
+          mc_version = str((pack.get("versions") or {}).get("minecraft") or folder)
+          java_version = os.environ.get("JAVA_VERSION", "").strip()
+          if not java_version:
+              if mc_version.startswith("26."):
+                  java_version = "25"
+              elif mc_version in {"1.20.1", "1.20.4"}:
+                  java_version = "17"
+              else:
+                  java_version = "21"
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"MC_VERSION={mc_version}\n")
+              env_file.write(f"PACK_DIR=Packwiz/{folder}\n")
+              env_file.write(f"JAVA_VERSION={java_version}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"minecraft_version={mc_version}\n")
+              output.write(f"pack_dir=Packwiz/{folder}\n")
+              output.write(f"java_version={java_version}\n")
+          print(f"Resolved Packwiz/{folder}: Minecraft {mc_version}, Java {java_version}")
+          PY
 
       - name: Verify pack artifact destination
         if: env.PACK_ARTIFACT != '' && env.PACK_ARTIFACT_PATH == ''
@@ -116,7 +162,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
+          java-version: ${{ steps.resolve.outputs.java_version || env.JAVA_VERSION }}
 
       - name: Remember the game Java
         shell: bash

@@ -1,4 +1,4 @@
-name: Automatically publish to Modrinth and CurseForge
+name: 🚀 Auto publish release
 on:
   release:
     types: [published]
@@ -22,7 +22,31 @@ env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  prepare:
+    name: 🔎 Resolve release pack
+    runs-on: ubuntu-24.04
+    outputs:
+      minecraft_version: ${{ steps.resolve.outputs.minecraft_version }}
+      pack_dir: ${{ steps.resolve.outputs.pack_dir }}
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Resolve Minecraft version from pack version
+        id: resolve
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          python3 .github/scripts/resolve_release_version.py \
+            --pack-root Packwiz \
+            --version "$RELEASE_TAG" \
+            --github-output "$GITHUB_OUTPUT"
+
   publish-to-curseforge:
+    name: ✅ Publish to CurseForge
+    needs: prepare
     if: github.repository_owner == 'dirtTW' && (github.event_name == 'release' || inputs.target == 'all' || inputs.target == 'curseforge')
     runs-on: ubuntu-24.04
     environment: github-actions
@@ -40,14 +64,16 @@ jobs:
       - name: Publish to CurseForge
         uses: Kira-NT/mc-publish@v3.3.2
         with:
-          name: MC ${{ vars.MC_VERSION }} DBOP v${{ env.RELEASE_TAG }}
+          name: MC ${{ needs.prepare.outputs.minecraft_version }} DBOP v${{ env.RELEASE_TAG }}
           curseforge-id: 968954
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
           curseforge-files: "*.zip"
           loaders: fabric
-          game-versions: ${{ vars.MC_VERSION }}
+          game-versions: ${{ needs.prepare.outputs.minecraft_version }}
 
   publish-to-modrinth:
+    name: ✅ Publish to Modrinth
+    needs: prepare
     if: github.repository_owner == 'dirttw' && (github.event_name == 'release' || inputs.target == 'all' || inputs.target == 'modrinth')
     runs-on: ubuntu-24.04
     environment: github-actions
@@ -74,7 +100,7 @@ jobs:
         run: go install github.com/packwiz/packwiz@latest
       - name: Export to packwiz
         run: |
-          pushd Packwiz/${{ vars.MC_VERSION }}
+          pushd "${{ needs.prepare.outputs.pack_dir }}"
           "$(go env GOPATH)/bin/packwiz" modrinth export -o ../../DBOP-${{ env.RELEASE_TAG }}.mrpack
           popd
       - name: Attest mrpack
@@ -89,13 +115,13 @@ jobs:
       - name: Publish to Modrinth
         uses: Kira-NT/mc-publish@v3.3.2
         with:
-          name: MC ${{ vars.MC_VERSION }} DBOP v${{ env.RELEASE_TAG }}
+          name: MC ${{ needs.prepare.outputs.minecraft_version }} DBOP v${{ env.RELEASE_TAG }}
           modrinth-id: olssWAmw
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           modrinth-unfeature-mode: subset
           files: DBOP-${{ env.RELEASE_TAG }}.mrpack
           loaders: fabric
-          game-versions: ${{ vars.MC_VERSION }}
+          game-versions: ${{ needs.prepare.outputs.minecraft_version }}
       - name: Upload to Github
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
