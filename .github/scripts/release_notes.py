@@ -10,9 +10,17 @@ from pathlib import Path
 VERSION_HEADING = re.compile(r"^### \*\*v?([^*]+)\*\*\s*$", re.MULTILINE)
 
 
+def normalize_version(version: str) -> str:
+    """Strip an optional ``v`` prefix and a ``test-`` release tag prefix."""
+    normalized = version[1:] if version.lower().startswith("v") else version
+    if normalized.lower().startswith("test-"):
+        normalized = normalized[5:]
+    return normalized
+
+
 def extract_section(changelog: str, version: str) -> str:
     """Return the changelog body for one pack version."""
-    normalized = version[1:] if version.lower().startswith("v") else version
+    normalized = normalize_version(version)
     matches = list(VERSION_HEADING.finditer(changelog))
     for index, match in enumerate(matches):
         if match.group(1).strip() != normalized:
@@ -32,7 +40,7 @@ def count_mod_updates(section: str) -> int:
 
 
 def build_notes(changelog: str, version: str, minecraft: str) -> tuple[str, int]:
-    normalized = version[1:] if version.lower().startswith("v") else version
+    normalized = normalize_version(version)
     section = extract_section(changelog, version)
     count = count_mod_updates(section)
     header = f"## **Changelog MC {minecraft}**\n\n"

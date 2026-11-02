@@ -35,6 +35,13 @@ class ReleaseNotesTest(unittest.TestCase):
         self.assertIn("Sodium", notes)
         self.assertNotIn("Old Mod", notes)
 
+    def test_test_release_tag_is_normalized(self) -> None:
+        changelog = "### **v0.6.3**\n\n- Update mods\n    - Sodium\n"
+        notes, count = release_notes.build_notes(changelog, "test-0.6.3", "1.21.8")
+        self.assertEqual(count, 1)
+        self.assertIn("### **v0.6.3**", notes)
+        self.assertNotIn("test-0.6.3", notes)
+
     def test_missing_section_is_empty(self) -> None:
         notes, count = release_notes.build_notes("### **v0.6.2**\n", "0.8.0", "26.4")
         self.assertEqual(count, 0)
