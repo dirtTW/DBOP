@@ -44,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     values = {
+        "pack_folder": folder,
         "pack_dir": (args.pack_root / folder).as_posix(),
         "minecraft_version": minecraft,
     }

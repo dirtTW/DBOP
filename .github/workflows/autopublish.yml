@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       minecraft_version: ${{ steps.resolve.outputs.minecraft_version }}
+      pack_folder: ${{ steps.resolve.outputs.pack_folder }}
       pack_dir: ${{ steps.resolve.outputs.pack_dir }}
     steps:
       - name: Check out release
@@ -69,7 +70,7 @@ jobs:
 
       - name: Export CurseForge zip
         run: |
-          pushd "Curseforge/${{ needs.prepare.outputs.minecraft_version }}"
+          pushd "Curseforge/${{ needs.prepare.outputs.pack_folder }}"
           "$(go env GOPATH)/bin/packwiz" curseforge export \
             -o "../../DBOP.MC.${{ needs.prepare.outputs.minecraft_version }}-${{ env.RELEASE_TAG }}.zip"
           popd
