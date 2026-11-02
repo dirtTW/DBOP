@@ -1,7 +1,8 @@
-name: Prepare Packwiz update for Minecraft release
+name: 📦 Prepare Packwiz update or migration
 
 on:
   schedule:
+    # Daily check for a new stable Minecraft release (migration only).
     - cron: "17 6 * * *"
   workflow_dispatch:
     inputs:
@@ -14,23 +15,49 @@ on:
           - migrate
           - update_existing
       minecraft_version:
-        description: Stable version to update (blank only works for automatic migration)
+        description: Stable Minecraft version (blank = latest DBOP pack)
         required: false
+        type: string
+      minimum_mod_updates:
+        description: Minimum changed mods before opening a PR
+        required: false
+        default: "3"
+        type: string
+  workflow_call:
+    inputs:
+      mode:
+        description: migrate or update_existing
+        required: false
+        default: migrate
+        type: string
+      minecraft_version:
+        description: Stable Minecraft version (required for update_existing)
+        required: false
+        default: ""
+        type: string
+      minimum_mod_updates:
+        description: Minimum changed mods before opening a PR
+        required: false
+        default: "3"
         type: string
 
 permissions:
   contents: write
   pull-requests: write
+  issues: write
   actions: write
 
 jobs:
-  migrate:
+  update:
+    name: 📦 Build updated pack
     runs-on: ubuntu-24.04
     outputs:
       skip: ${{ steps.prepare.outputs.skip }}
+      proceed: ${{ steps.changes.outputs.proceed }}
       target_version: ${{ steps.prepare.outputs.target_version }}
       target_pack_version: ${{ steps.prepare.outputs.target_pack_version }}
       java_version: ${{ steps.client-test-java.outputs.version }}
+      mod_updates: ${{ steps.changes.outputs.mod_updates }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -49,6 +76,7 @@ jobs:
         run: |
           case "${{ steps.prepare.outputs.target_version }}" in
             1.20.1|1.20.4) echo "version=17" >> "$GITHUB_OUTPUT" ;;
+            26.*) echo "version=25" >> "$GITHUB_OUTPUT" ;;
             *) echo "version=21" >> "$GITHUB_OUTPUT" ;;
           esac
 
@@ -72,8 +100,8 @@ jobs:
           cp -R "../${SOURCE_VERSION}/mods" "${RUNNER_TEMP}/source-mods"
 
       - name: Update all compatible mods
-        if: steps.prepare.outputs.skip != 'true'
         id: update
+        if: steps.prepare.outputs.skip != 'true'
         working-directory: Packwiz/${{ steps.prepare.outputs.target_version }}
         run: |
           set +e
@@ -83,6 +111,22 @@ jobs:
             echo "Packwiz update failed with exit code $result; generating the report from available results." >&2
           fi
           echo "exit_code=$result" >> "$GITHUB_OUTPUT"
+
+      - name: Count changed mods and apply PR threshold
+        id: changes
+        if: steps.prepare.outputs.skip != 'true'
+        shell: bash
+        env:
+          TARGET_VERSION: ${{ steps.prepare.outputs.target_version }}
+          MIN_UPDATES: ${{ inputs.minimum_mod_updates || '3' }}
+        run: |
+          count=$(git status --porcelain -- "Packwiz/${TARGET_VERSION}/mods" | grep -c '\.pw\.toml$' || true)
+          echo "mod_updates=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" -ge "${MIN_UPDATES:-3}" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Generate update and review report
         if: steps.prepare.outputs.skip != 'true'
@@ -105,6 +149,31 @@ jobs:
           )
           cat "${RUNNER_TEMP}/packwiz-update-report.md" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Update summary
+        if: steps.prepare.outputs.skip != 'true'
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode || 'migrate' }}
+          TARGET_VERSION: ${{ steps.prepare.outputs.target_version }}
+          TARGET_PACK_VERSION: ${{ steps.prepare.outputs.target_pack_version }}
+          MOD_UPDATES: ${{ steps.changes.outputs.mod_updates }}
+          MIN_UPDATES: ${{ inputs.minimum_mod_updates || '3' }}
+          PROCEED: ${{ steps.changes.outputs.proceed }}
+        run: |
+          {
+            echo "## 📦 Packwiz update"
+            echo ""
+            echo "- Mode: **${MODE}**"
+            echo "- Minecraft: **${TARGET_VERSION}**"
+            echo "- Pack version: **v${TARGET_PACK_VERSION}**"
+            echo "- Changed mods: **${MOD_UPDATES}** (threshold: ${MIN_UPDATES})"
+            if [ "${PROCEED}" = "true" ]; then
+              echo "- ✅ Headless test and pull request will follow"
+            else
+              echo "- ⏭️ Skipped: not enough mod updates"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload update report
         if: steps.prepare.outputs.skip != 'true'
         uses: actions/upload-artifact@v7
@@ -125,46 +194,70 @@ jobs:
         run: exit 1
 
   client-test:
-    name: Test migrated pack in Minecraft
-    needs: migrate
-    if: needs.migrate.outputs.skip != 'true'
+    name: 🎮 Headless Minecraft test
+    needs: update
+    if: needs.update.outputs.skip != 'true' && needs.update.outputs.proceed == 'true'
     uses: ./.github/workflows/minecraft-client-test.yml
     with:
-      minecraft_version: ${{ needs.migrate.outputs.target_version }}
-      java_version: ${{ needs.migrate.outputs.java_version }}
-      pack_artifact: packwiz-updated-pack-${{ needs.migrate.outputs.target_version }}
-      pack_artifact_path: Packwiz/${{ needs.migrate.outputs.target_version }}
+      minecraft_version: ${{ needs.update.outputs.target_version }}
+      java_version: ${{ needs.update.outputs.java_version }}
+      pack_artifact: packwiz-updated-pack-${{ needs.update.outputs.target_version }}
+      pack_artifact_path: Packwiz/${{ needs.update.outputs.target_version }}
 
   create-pr:
-    name: Open review pull request
-    needs: [migrate, client-test]
-    if: needs.migrate.outputs.skip != 'true' && needs.client-test.result == 'success'
+    name: ✅ Open tested update PR
+    needs: [update, client-test]
+    if: needs.update.outputs.skip != 'true' && needs.update.outputs.proceed == 'true' && needs.client-test.result == 'success'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
       - name: Replace checked-out pack with tested artifact
-        run: rm -rf "Packwiz/${{ needs.migrate.outputs.target_version }}"
+        run: rm -rf "Packwiz/${{ needs.update.outputs.target_version }}"
 
       - name: Download tested pack
         uses: actions/download-artifact@v7
         with:
-          name: packwiz-updated-pack-${{ needs.migrate.outputs.target_version }}
-          path: Packwiz/${{ needs.migrate.outputs.target_version }}
+          name: packwiz-updated-pack-${{ needs.update.outputs.target_version }}
+          path: Packwiz/${{ needs.update.outputs.target_version }}
+
+      - name: Create update label
+        id: label
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODE: ${{ inputs.mode || 'migrate' }}
+          TARGET_VERSION: ${{ needs.update.outputs.target_version }}
+          PACK_VERSION: ${{ needs.update.outputs.target_pack_version }}
+        run: |
+          prefix=migrate
+          if [ "${MODE}" = "update_existing" ]; then prefix=update; fi
+          label="${prefix}:${TARGET_VERSION}-DBOP-v${PACK_VERSION}"
+          gh label create "${label}" --color 1D76DB --force
+          echo "prefix=${prefix}" >> "$GITHUB_OUTPUT"
+          echo "label=${label}" >> "$GITHUB_OUTPUT"
 
       - name: Open review pull request
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          add-paths: Packwiz/${{ needs.migrate.outputs.target_version }}/
-          branch: bot/packwiz-${{ inputs.mode || 'migrate' }}-${{ needs.migrate.outputs.target_version }}-v${{ needs.migrate.outputs.target_pack_version }}
+          add-paths: Packwiz/${{ needs.update.outputs.target_version }}/
+          branch: bot/${{ steps.label.outputs.prefix }}-${{ needs.update.outputs.target_version }}-v${{ needs.update.outputs.target_pack_version }}
           delete-branch: true
-          title: ${{ inputs.mode == 'update_existing' && 'Update' || 'Prepare' }} DBOP v${{ needs.migrate.outputs.target_pack_version }} for Minecraft ${{ needs.migrate.outputs.target_version }}
-          commit-message: ${{ inputs.mode == 'update_existing' && 'Update' || 'Prepare' }} DBOP v${{ needs.migrate.outputs.target_pack_version }} for Minecraft ${{ needs.migrate.outputs.target_version }}
+          labels: ${{ steps.label.outputs.label }}
+          title: ${{ inputs.mode == 'update_existing' && 'update:' || 'migrate:' }} ${{ needs.update.outputs.target_version }} DBOP v${{ needs.update.outputs.target_pack_version }}
+          commit-message: ${{ inputs.mode == 'update_existing' && 'update:' || 'migrate:' }} ${{ needs.update.outputs.target_version }} DBOP v${{ needs.update.outputs.target_pack_version }}
           body: |
-            ${{ inputs.mode == 'update_existing' && 'Updates the existing Packwiz pack and increments its patch version.' || 'Creates a new Packwiz folder from the latest existing pack, increments the version series when the Minecraft major version changes, and updates Minecraft and Fabric Loader metadata.' }}
+            ## ✅ Tested pack ${{ inputs.mode == 'update_existing' && 'update' || 'migration' }}
 
-            The target pack includes a `changelog.md` listing changed mods and linking the full GitHub comparison. Review the **packwiz-update-report-${{ needs.migrate.outputs.target_version }}** artifact for unchanged mods that may need an alternative or manual disabling. Nothing is disabled automatically and this workflow does not publish releases.
+            - **Mode:** `${{ steps.label.outputs.prefix }}`
+            - **Minecraft:** `${{ needs.update.outputs.target_version }}`
+            - **Pack version:** `v${{ needs.update.outputs.target_pack_version }}`
+            - **Changed mods:** `${{ needs.update.outputs.mod_updates }}`
+            - **Label:** `${{ steps.label.outputs.label }}`
+            - **Headless test:** ✅ passed — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-            The migrated pack passed the **Test migrated pack in Minecraft** job: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            The pack layout was changed through `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}` and the real Minecraft client test completed before this PR was opened.
+
+            After merging, run **✅ Minecraft Fabric client test** manually from Actions if you want a post-merge verification run. Publishing remains a separate release step.

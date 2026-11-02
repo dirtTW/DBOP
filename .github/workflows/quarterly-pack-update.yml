@@ -1,0 +1,36 @@
+name: 🗓️ Quarterly pack update
+
+# Every three months, prepare a small patch update (for example 0.6.3 ->
+# 0.6.4). A pull request is opened only when at least the configured number of
+# mods changed (default 3). Publishing remains the normal release workflow.
+
+on:
+  schedule:
+    - cron: "0 6 1 */3 *"
+  workflow_dispatch:
+    inputs:
+      minecraft_version:
+        description: Packwiz/Minecraft version to update (blank = latest DBOP pack)
+        required: false
+        default: ""
+        type: string
+      minimum_mod_updates:
+        description: Minimum changed mods before opening a PR
+        required: true
+        default: "3"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+jobs:
+  update:
+    name: 🗓️ Quarterly patch update
+    uses: ./.github/workflows/migrate-packwiz-mods.yml
+    with:
+      mode: update_existing
+      minecraft_version: ${{ inputs.minecraft_version || '' }}
+      minimum_mod_updates: ${{ inputs.minimum_mod_updates || '3' }}

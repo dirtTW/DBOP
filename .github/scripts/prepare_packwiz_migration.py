@@ -90,6 +90,37 @@ def update_fabric_loader_dependencies(pack_dir: Path, loader_version: str) -> No
     )
 
 
+def latest_pack_folder(pack_root: Path) -> Path:
+    """Return the Packwiz folder with the highest pack version."""
+    candidates: list[tuple[tuple[int, int, int], tuple[int, ...], Path]] = []
+    for path in pack_root.iterdir():
+        pack_path = path / "pack.toml"
+        if not path.is_dir() or not pack_path.is_file():
+            continue
+        contents = pack_path.read_text(encoding="utf-8-sig")
+        version_match = re.search(r'^version\s*=\s*"([^"]+)"\s*$', contents, re.MULTILINE)
+        minecraft_match = re.search(r'^minecraft\s*=\s*"([^"]+)"\s*$', contents, re.MULTILINE)
+        if not version_match or not minecraft_match:
+            continue
+        version_parts = SEMVER_PATTERN.fullmatch(version_match.group(1))
+        if not version_parts:
+            continue
+        try:
+            mc_parts = tuple(int(part) for part in minecraft_match.group(1).split("."))
+        except ValueError:
+            continue
+        candidates.append(
+            (
+                tuple(int(part) for part in version_parts.groups()),
+                mc_parts,
+                path,
+            )
+        )
+    if not candidates:
+        raise FileNotFoundError(f"No versioned Packwiz pack found under {pack_root}")
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
 def update_pack_version_files(pack_dir: Path, source_version: str, target_version: str) -> None:
     pack_path = pack_dir / "pack.toml"
     pack = pack_path.read_text(encoding="utf-8")
@@ -122,8 +153,6 @@ def main() -> None:
     versions_by_id = {version["id"]: version for version in version_records}
 
     requested_version = os.environ.get("MINECRAFT_VERSION", "").strip()
-    if mode == "update_existing" and not requested_version:
-        raise ValueError("Select an existing Minecraft version when updating an existing pack")
     if requested_version:
         if not VERSION_PATTERN.fullmatch(requested_version):
             raise ValueError(f"Invalid Minecraft version: {requested_version!r}")
@@ -131,6 +160,9 @@ def main() -> None:
         if not version_record or version_record["type"] != "release":
             raise ValueError(f"{requested_version} is not a stable Minecraft release in Mojang's manifest")
         target_version = requested_version
+    elif mode == "update_existing":
+        target_version = latest_pack_folder(pack_root).name
+        print(f"No Minecraft version specified; using the latest DBOP pack folder: {target_version}")
     else:
         target_version = manifest["latest"]["release"]
 
