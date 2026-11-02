@@ -42,6 +42,13 @@ class ReleaseNotesTest(unittest.TestCase):
         self.assertIn("### **v0.6.3**", notes)
         self.assertNotIn("test-0.6.3", notes)
 
+    def test_no_mod_updates_placeholder_counts_as_zero(self) -> None:
+        notes, count = release_notes.build_notes(
+            "### **v0.6.3**\n\n- Update mods\n    - No mod updates\n", "0.6.3", "1.21.8"
+        )
+        self.assertEqual(count, 0)
+        self.assertIn("No mod updates", notes)
+
     def test_missing_section_is_empty(self) -> None:
         notes, count = release_notes.build_notes("### **v0.6.2**\n", "0.8.0", "26.4")
         self.assertEqual(count, 0)
