@@ -1,0 +1,38 @@
+name: Python tests
+
+# Lightweight unit tests for the local tooling. The full Minecraft client test
+# is intentionally not triggered by script/test-only changes.
+
+on:
+  pull_request:
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/python-tests.yml"
+      - "sync-packs.py"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/python-tests.yml"
+      - "sync-packs.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run Python unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run unit tests
+        run: python -m unittest discover -s .github/scripts/tests -v

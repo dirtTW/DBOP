@@ -48,7 +48,6 @@ on:
       - ".github/workflows/minecraft-client-test.yml"
       - ".github/scripts/download_packwiz_client.py"
       - ".github/scripts/analyze_minecraft_logs.py"
-      - ".github/scripts/tests/**"
   push:
     branches:
       - main
@@ -57,7 +56,6 @@ on:
       - ".github/workflows/minecraft-client-test.yml"
       - ".github/scripts/download_packwiz_client.py"
       - ".github/scripts/analyze_minecraft_logs.py"
-      - ".github/scripts/tests/**"
   schedule:
     # Weekly smoke test: catches a mod/asset breaking without a pack change.
     - cron: "41 2 * * 1"
