@@ -2,7 +2,8 @@ name: 🗓️ Quarterly pack update
 
 # Every three months, prepare a small patch update (for example 0.6.3 ->
 # 0.6.4). A pull request is opened only when at least the configured number of
-# mods changed (default 3). Publishing remains the normal release workflow.
+# mods changed (default 3). The auto-publish workflow independently re-checks
+# the same threshold before publishing a release.
 
 on:
   schedule:
