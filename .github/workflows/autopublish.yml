@@ -31,8 +31,9 @@ on:
 
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-  MIN_UPDATES: ${{ inputs.minimum_mod_updates || '3' }}
-  # test-* releases always build artifacts without publishing to a platform.
+  # test-* releases are verification-only: build assets with threshold 0 and
+  # never publish to CurseForge or Modrinth.
+  MIN_UPDATES: ${{ startsWith(inputs.tag || github.ref_name, 'test-') && '0' || inputs.minimum_mod_updates || '3' }}
   DRY_RUN: ${{ startsWith(inputs.tag || github.ref_name, 'test-') || inputs.dry_run == true }}
 
 jobs:
