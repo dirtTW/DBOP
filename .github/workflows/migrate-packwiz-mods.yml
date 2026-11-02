@@ -21,10 +21,16 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 jobs:
   migrate:
     runs-on: ubuntu-24.04
+    outputs:
+      skip: ${{ steps.prepare.outputs.skip }}
+      target_version: ${{ steps.prepare.outputs.target_version }}
+      target_pack_version: ${{ steps.prepare.outputs.target_pack_version }}
+      java_version: ${{ steps.client-test-java.outputs.version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -35,6 +41,16 @@ jobs:
           MODE: ${{ inputs.mode || 'migrate' }}
           MINECRAFT_VERSION: ${{ inputs.minecraft_version }}
         run: python3 .github/scripts/prepare_packwiz_migration.py
+
+      - name: Choose Java for the Minecraft client test
+        id: client-test-java
+        if: steps.prepare.outputs.skip != 'true'
+        shell: bash
+        run: |
+          case "${{ steps.prepare.outputs.target_version }}" in
+            1.20.1|1.20.4) echo "version=17" >> "$GITHUB_OUTPUT" ;;
+            *) echo "version=21" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Set up Go
         if: steps.prepare.outputs.skip != 'true'
@@ -96,21 +112,59 @@ jobs:
           name: packwiz-update-report-${{ steps.prepare.outputs.target_version }}
           path: ${{ runner.temp }}/packwiz-update-report.md
 
-      - name: Open review pull request
+      - name: Upload updated pack for the client test
         if: steps.prepare.outputs.skip != 'true'
-        uses: peter-evans/create-pull-request@v8
+        uses: actions/upload-artifact@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          add-paths: Packwiz/${{ steps.prepare.outputs.target_version }}/
-          branch: bot/packwiz-${{ inputs.mode || 'migrate' }}-${{ steps.prepare.outputs.target_version }}-v${{ steps.prepare.outputs.target_pack_version }}
-          delete-branch: true
-          title: ${{ inputs.mode == 'update_existing' && 'Update' || 'Prepare' }} DBOP v${{ steps.prepare.outputs.target_pack_version }} for Minecraft ${{ steps.prepare.outputs.target_version }}
-          commit-message: ${{ inputs.mode == 'update_existing' && 'Update' || 'Prepare' }} DBOP v${{ steps.prepare.outputs.target_pack_version }} for Minecraft ${{ steps.prepare.outputs.target_version }}
-          body: |
-            ${{ inputs.mode == 'update_existing' && 'Updates the existing Packwiz pack and increments its patch version.' || 'Creates a new Packwiz folder from the latest existing pack, increments the version series when the Minecraft major version changes, and updates Minecraft and Fabric Loader metadata.' }}
-
-            The target pack includes a `changelog.md` listing changed mods and linking the full GitHub comparison. Review the **packwiz-update-report-${{ steps.prepare.outputs.target_version }}** artifact for unchanged mods that may need an alternative or manual disabling. Nothing is disabled automatically and this workflow does not publish releases.
+          name: packwiz-updated-pack-${{ steps.prepare.outputs.target_version }}
+          path: Packwiz/${{ steps.prepare.outputs.target_version }}
+          retention-days: 7
 
       - name: Mark Packwiz command failure
         if: steps.prepare.outputs.skip != 'true' && steps.update.outputs.exit_code != '0'
         run: exit 1
+
+  client-test:
+    name: Test migrated pack in Minecraft
+    needs: migrate
+    if: needs.migrate.outputs.skip != 'true'
+    uses: ./.github/workflows/minecraft-client-test.yml
+    with:
+      minecraft_version: ${{ needs.migrate.outputs.target_version }}
+      java_version: ${{ needs.migrate.outputs.java_version }}
+      pack_artifact: packwiz-updated-pack-${{ needs.migrate.outputs.target_version }}
+      pack_artifact_path: Packwiz/${{ needs.migrate.outputs.target_version }}
+
+  create-pr:
+    name: Open review pull request
+    needs: [migrate, client-test]
+    if: needs.migrate.outputs.skip != 'true' && needs.client-test.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Replace checked-out pack with tested artifact
+        run: rm -rf "Packwiz/${{ needs.migrate.outputs.target_version }}"
+
+      - name: Download tested pack
+        uses: actions/download-artifact@v7
+        with:
+          name: packwiz-updated-pack-${{ needs.migrate.outputs.target_version }}
+          path: Packwiz/${{ needs.migrate.outputs.target_version }}
+
+      - name: Open review pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          add-paths: Packwiz/${{ needs.migrate.outputs.target_version }}/
+          branch: bot/packwiz-${{ inputs.mode || 'migrate' }}-${{ needs.migrate.outputs.target_version }}-v${{ needs.migrate.outputs.target_pack_version }}
+          delete-branch: true
+          title: ${{ inputs.mode == 'update_existing' && 'Update' || 'Prepare' }} DBOP v${{ needs.migrate.outputs.target_pack_version }} for Minecraft ${{ needs.migrate.outputs.target_version }}
+          commit-message: ${{ inputs.mode == 'update_existing' && 'Update' || 'Prepare' }} DBOP v${{ needs.migrate.outputs.target_pack_version }} for Minecraft ${{ needs.migrate.outputs.target_version }}
+          body: |
+            ${{ inputs.mode == 'update_existing' && 'Updates the existing Packwiz pack and increments its patch version.' || 'Creates a new Packwiz folder from the latest existing pack, increments the version series when the Minecraft major version changes, and updates Minecraft and Fabric Loader metadata.' }}
+
+            The target pack includes a `changelog.md` listing changed mods and linking the full GitHub comparison. Review the **packwiz-update-report-${{ needs.migrate.outputs.target_version }}** artifact for unchanged mods that may need an alternative or manual disabling. Nothing is disabled automatically and this workflow does not publish releases.
+
+            The migrated pack passed the **Test migrated pack in Minecraft** job: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
