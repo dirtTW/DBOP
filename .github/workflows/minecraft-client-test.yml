@@ -42,23 +42,12 @@ on:
         required: false
         type: string
         default: ""
-  pull_request:
-    paths:
-      - "Packwiz/1.21.8/**"
-      - ".github/workflows/minecraft-client-test.yml"
-      - ".github/scripts/download_packwiz_client.py"
-      - ".github/scripts/analyze_minecraft_logs.py"
+  # Tag pushes (releases) and explicit dispatches are the only automatic entry
+  # points. The migrate workflow calls this reusable workflow with the exact
+  # pack artifact and Minecraft version under test.
   push:
-    branches:
-      - main
-    paths:
-      - "Packwiz/1.21.8/**"
-      - ".github/workflows/minecraft-client-test.yml"
-      - ".github/scripts/download_packwiz_client.py"
-      - ".github/scripts/analyze_minecraft_logs.py"
-  schedule:
-    # Weekly smoke test: catches a mod/asset breaking without a pack change.
-    - cron: "41 2 * * 1"
+    tags:
+      - "*"
 
 permissions:
   contents: read
