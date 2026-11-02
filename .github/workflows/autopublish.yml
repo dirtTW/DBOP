@@ -2,9 +2,28 @@ name: Automatically publish to Modrinth and CurseForge
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish
+        required: true
+        type: string
+      target:
+        description: Which platform to publish to
+        required: true
+        default: curseforge
+        type: choice
+        options:
+          - all
+          - curseforge
+          - modrinth
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
 jobs:
   publish-to-curseforge:
-    if: github.repository_owner == 'dirtTW'
+    if: github.repository_owner == 'dirtTW' && (github.event_name == 'release' || inputs.target == 'all' || inputs.target == 'curseforge')
     runs-on: ubuntu-24.04
     environment: github-actions
     steps:
@@ -12,16 +31,16 @@ jobs:
         uses: robinraju/release-downloader@v1.13
         id: download-files
         with:
+          repository: ${{ github.repository }}
+          tag: ${{ env.RELEASE_TAG }}
           fileName: "*.zip"
-          latest: true
           tarBall: false
           zipBall: false
-          preRelease: true
 
       - name: Publish to CurseForge
         uses: Kira-NT/mc-publish@v3.3.2
         with:
-          name: MC ${{ vars.MC_VERSION }} DBOP v${{ steps.download-files.outputs.tag_name }}
+          name: MC ${{ vars.MC_VERSION }} DBOP v${{ env.RELEASE_TAG }}
           curseforge-id: 968954
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
           curseforge-files: "*.zip"
@@ -29,7 +48,7 @@ jobs:
           game-versions: ${{ vars.MC_VERSION }}
 
   publish-to-modrinth:
-    if: github.repository_owner == 'dirttw'
+    if: github.repository_owner == 'dirttw' && (github.event_name == 'release' || inputs.target == 'all' || inputs.target == 'modrinth')
     runs-on: ubuntu-24.04
     environment: github-actions
     permissions:
@@ -39,6 +58,8 @@ jobs:
     steps:
       - name: Clone Repo
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - name: Set up Node.js LTS
         uses: actions/setup-node@v7
         with:
@@ -54,13 +75,13 @@ jobs:
       - name: Export to packwiz
         run: |
           pushd Packwiz/${{ vars.MC_VERSION }}
-          "$(go env GOPATH)/bin/packwiz" modrinth export -o ../../DBOP-${{ github.ref_name }}.mrpack
+          "$(go env GOPATH)/bin/packwiz" modrinth export -o ../../DBOP-${{ env.RELEASE_TAG }}.mrpack
           popd
       - name: Attest mrpack
         id: attest-mrpack
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: DBOP-${{ github.ref_name }}.mrpack
+          subject-path: DBOP-${{ env.RELEASE_TAG }}.mrpack
       - name: Copy and zip attestation
         run: |
           cp ${{ steps.attest-mrpack.outputs.bundle-path }} cosign-bundle.json
@@ -68,16 +89,14 @@ jobs:
       - name: Publish to Modrinth
         uses: Kira-NT/mc-publish@v3.3.2
         with:
-          name: MC ${{ vars.MC_VERSION }} DBOP v${{ github.ref_name }}
+          name: MC ${{ vars.MC_VERSION }} DBOP v${{ env.RELEASE_TAG }}
           modrinth-id: olssWAmw
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           modrinth-unfeature-mode: subset
-          files: DBOP-${{ github.ref_name }}.mrpack
+          files: DBOP-${{ env.RELEASE_TAG }}.mrpack
           loaders: fabric
           game-versions: ${{ vars.MC_VERSION }}
       - name: Upload to Github
-        uses: Shopify/upload-to-release@v2.0.0
-        with:
-          name: DBOP-${{ github.ref_name }}.mrpack
-          path: DBOP-${{ github.ref_name }}.mrpack
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" "DBOP-${{ env.RELEASE_TAG }}.mrpack" --repo "${{ github.repository }}" --clobber
