@@ -45,6 +45,7 @@ jobs:
     outputs:
       minecraft_version: ${{ steps.resolve.outputs.minecraft_version }}
       pack_folder: ${{ steps.resolve.outputs.pack_folder }}
+      target_pack_version: ${{ steps.resolve.outputs.pack_version }}
       mod_updates: ${{ steps.mods.outputs.mod_updates }}
       publish_allowed: ${{ steps.mods.outputs.publish_allowed }}
       notes_file: ${{ steps.notes.outputs.notes_file }}
@@ -169,10 +170,23 @@ jobs:
 
       - name: Export CurseForge zip
         run: |
-          pushd "Curseforge/${{ needs.prepare.outputs.pack_folder }}"
+          pushd "Packwiz/${{ needs.prepare.outputs.pack_folder }}"
           "$(go env GOPATH)/bin/packwiz" curseforge export \
             -o "../../DBOP.MC.${{ needs.prepare.outputs.minecraft_version }}-${{ env.RELEASE_TAG }}.zip"
           popd
+
+      - name: Verify the CurseForge zip version
+        shell: bash
+        env:
+          PACK_VERSION: ${{ needs.prepare.outputs.target_pack_version }}
+        run: |
+          version=$(python3 -c "import json,sys,zipfile; print(json.loads(zipfile.ZipFile(sys.argv[1]).read('manifest.json'))['version'])" \
+            "DBOP.MC.${{ needs.prepare.outputs.minecraft_version }}-${{ env.RELEASE_TAG }}.zip")
+          if [ "${version}" != "${PACK_VERSION}" ]; then
+            echo "::error title=CurseForge export mismatch::Zip version ${version} != pack version ${PACK_VERSION}"
+            exit 1
+          fi
+          echo "CurseForge zip version: ${version}"
 
       - name: Publish to CurseForge
         if: env.DRY_RUN != 'true'
