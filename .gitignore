@@ -10,3 +10,6 @@ packwiz/packwiz
 /HeadlessMC/
 /artifacts/
 __pycache__/
+
+# Local-only helper documentation
+/SYNC_PACKS.md
