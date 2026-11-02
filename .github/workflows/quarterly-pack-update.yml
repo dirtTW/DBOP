@@ -20,6 +20,11 @@ on:
         required: true
         default: "3"
         type: string
+      test_release:
+        description: Create a draft test-<version> release (autopublish stays dry-run)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -35,3 +40,73 @@ jobs:
       mode: update_existing
       minecraft_version: ${{ inputs.minecraft_version || '' }}
       minimum_mod_updates: ${{ inputs.minimum_mod_updates || '3' }}
+
+  draft-release:
+    name: 🏷️ Draft tested release
+    needs: update
+    if: needs.update.outputs.proceed == 'true' && needs.update.outputs.pr_branch != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tested update branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.update.outputs.pr_branch }}
+
+      - name: Build release notes from the tested changelog
+        id: notes
+        shell: bash
+        env:
+          MINECRAFT_VERSION: ${{ needs.update.outputs.target_version }}
+          PACK_VERSION: ${{ needs.update.outputs.target_pack_version }}
+        run: |
+          notes="${RUNNER_TEMP}/release-notes-${PACK_VERSION}.md"
+          python3 .github/scripts/release_notes.py \
+            --changelog "Packwiz/${MINECRAFT_VERSION}/changelog.md" \
+            --version "${PACK_VERSION}" \
+            --minecraft "${MINECRAFT_VERSION}" \
+            --output "${notes}"
+          echo "notes_file=${notes}" >> "$GITHUB_OUTPUT"
+
+      - name: Create threshold-gated draft release
+        id: create
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MINECRAFT_VERSION: ${{ needs.update.outputs.target_version }}
+          PACK_VERSION: ${{ needs.update.outputs.target_pack_version }}
+          MOD_UPDATES: ${{ needs.update.outputs.mod_updates }}
+          TEST_RELEASE: ${{ inputs.test_release || false }}
+          NOTES_FILE: ${{ steps.notes.outputs.notes_file }}
+          PR_BRANCH: ${{ needs.update.outputs.pr_branch }}
+        run: |
+          if [ "${TEST_RELEASE}" = "true" ]; then
+            tag="test-${PACK_VERSION}"
+            title="MC ${MINECRAFT_VERSION} DBOP v${PACK_VERSION} (test)"
+          else
+            tag="${PACK_VERSION}"
+            title="MC ${MINECRAFT_VERSION} DBOP v${PACK_VERSION}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::warning title=Release already exists::${tag} already exists; leaving it unchanged."
+            exit 0
+          fi
+          gh release create "${tag}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${PR_BRANCH}" \
+            --title "${title}" \
+            --notes-file "${NOTES_FILE}" \
+            --draft
+          {
+            echo "## 🏷️ Draft release"
+            echo ""
+            echo "- Tag: **${tag}**"
+            echo "- Minecraft: **${MINECRAFT_VERSION}**"
+            echo "- Changed mods: **${MOD_UPDATES}**"
+            echo "- Draft: ✅ created (publish after the PR is merged)"
+            if [ "${TEST_RELEASE}" = "true" ]; then
+              echo "- Mode: 🧪 test release — autopublish runs dry-run only"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

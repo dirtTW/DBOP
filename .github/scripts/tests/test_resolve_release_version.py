@@ -22,6 +22,9 @@ class ResolveReleaseVersionTest(unittest.TestCase):
             self.assertEqual(resolver.find_pack_for_version(root, "0.6.2"), ("1.21.8", "1.21.8"))
             self.assertEqual(resolver.find_pack_for_version(root, "0.8.0"), ("26.4", "26.4"))
             self.assertEqual(resolver.find_pack_for_version(root, "v0.8.0"), ("26.4", "26.4"))
+            self.assertEqual(
+                resolver.find_pack_for_version(root, "test-0.8.0"), ("26.4", "26.4")
+            )
 
     def test_missing_pack_version_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

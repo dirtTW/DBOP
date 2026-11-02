@@ -40,6 +40,22 @@ on:
         required: false
         default: "3"
         type: string
+    outputs:
+      target_version:
+        description: Minecraft version that was prepared
+        value: ${{ jobs.update.outputs.target_version }}
+      target_pack_version:
+        description: Pack version written to pack.toml
+        value: ${{ jobs.update.outputs.target_pack_version }}
+      mod_updates:
+        description: Number of changed mod files
+        value: ${{ jobs.update.outputs.mod_updates }}
+      proceed:
+        description: Whether the change threshold was met
+        value: ${{ jobs.update.outputs.proceed }}
+      pr_branch:
+        description: Branch containing the tested pack update
+        value: ${{ jobs.create-pr.outputs.pr_branch }}
 
 permissions:
   contents: write
@@ -210,6 +226,8 @@ jobs:
     needs: [update, client-test]
     if: needs.update.outputs.skip != 'true' && needs.update.outputs.proceed == 'true' && needs.client-test.result == 'success'
     runs-on: ubuntu-24.04
+    outputs:
+      pr_branch: ${{ steps.pr.outputs.pull-request-branch }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -240,6 +258,7 @@ jobs:
           echo "label=${label}" >> "$GITHUB_OUTPUT"
 
       - name: Open review pull request
+        id: pr
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

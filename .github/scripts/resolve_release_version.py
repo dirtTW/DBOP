@@ -16,6 +16,8 @@ except ModuleNotFoundError:  # pragma: no cover
 def find_pack_for_version(pack_root: Path, version: str) -> tuple[str, str]:
     """Return (folder_name, minecraft_version) for a pack version."""
     normalized = version[1:] if version.lower().startswith("v") else version
+    if normalized.lower().startswith("test-"):
+        normalized = normalized[5:]
     for path in sorted(pack_root.glob("*/pack.toml")):
         try:
             data = tomllib.loads(path.read_text(encoding="utf-8-sig"))

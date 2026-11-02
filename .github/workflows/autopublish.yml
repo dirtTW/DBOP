@@ -32,6 +32,8 @@ on:
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
   MIN_UPDATES: ${{ inputs.minimum_mod_updates || '3' }}
+  # test-* releases always build artifacts without publishing to a platform.
+  DRY_RUN: ${{ startsWith(inputs.tag || github.ref_name, 'test-') || inputs.dry_run == true }}
 
 jobs:
   prepare:
@@ -104,7 +106,7 @@ jobs:
           echo "notes_file=${notes}" >> "$GITHUB_OUTPUT"
 
       - name: Update GitHub release notes
-        if: steps.mods.outputs.publish_allowed == 'true' && inputs.dry_run != true
+        if: steps.mods.outputs.publish_allowed == 'true' && env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -113,7 +115,7 @@ jobs:
             --repo "${{ github.repository }}"
 
       - name: Upload dry-run release notes
-        if: inputs.dry_run == true && steps.notes.outputs.notes_file != ''
+        if: env.DRY_RUN == 'true' && steps.notes.outputs.notes_file != ''
         uses: actions/upload-artifact@v7
         with:
           name: release-notes-${{ env.RELEASE_TAG }}
@@ -172,7 +174,7 @@ jobs:
           popd
 
       - name: Publish to CurseForge
-        if: inputs.dry_run != true
+        if: env.DRY_RUN != 'true'
         uses: Kira-NT/mc-publish@v3.3.2
         with:
           name: MC ${{ needs.prepare.outputs.minecraft_version }} DBOP v${{ env.RELEASE_TAG }}
@@ -183,7 +185,7 @@ jobs:
           game-versions: ${{ needs.prepare.outputs.minecraft_version }}
 
       - name: Upload CurseForge zip to release
-        if: inputs.dry_run != true
+        if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -192,7 +194,7 @@ jobs:
             --repo "${{ github.repository }}" --clobber
 
       - name: Upload dry-run CurseForge zip
-        if: inputs.dry_run == true
+        if: env.DRY_RUN == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: release-assets-${{ env.RELEASE_TAG }}-curseforge
@@ -249,7 +251,7 @@ jobs:
           zip cosign-bundle.zip cosign-bundle.json
 
       - name: Publish to Modrinth
-        if: inputs.dry_run != true
+        if: env.DRY_RUN != 'true'
         uses: Kira-NT/mc-publish@v3.3.2
         with:
           name: MC ${{ needs.prepare.outputs.minecraft_version }} DBOP v${{ env.RELEASE_TAG }}
@@ -261,13 +263,13 @@ jobs:
           game-versions: ${{ needs.prepare.outputs.minecraft_version }}
 
       - name: Upload to Github
-        if: inputs.dry_run != true
+        if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$RELEASE_TAG" "DBOP-${{ env.RELEASE_TAG }}.mrpack" --repo "${{ github.repository }}" --clobber
 
       - name: Upload dry-run Modrinth assets
-        if: inputs.dry_run == true
+        if: env.DRY_RUN == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: release-assets-${{ env.RELEASE_TAG }}-modrinth
