@@ -240,7 +240,7 @@ jobs:
         run: rm -rf "Packwiz/${{ needs.update.outputs.target_version }}"
 
       - name: Download tested pack
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: packwiz-updated-pack-${{ needs.update.outputs.target_version }}
           path: Packwiz/${{ needs.update.outputs.target_version }}
