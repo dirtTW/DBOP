@@ -2,7 +2,7 @@ hash-format = "sha256"
 
 [[files]]
 file = "changelog.md"
-hash = "bd3e37cfce2ae8d6681f11770a1fd91ae11c5cd14cec13534ff04a26c2a59e81"
+hash = "b51b222482e6d137387a772fc52ac25a27676fe8ee4aa9250c1ab581b6c8525d"
 
 [[files]]
 file = "config/fabric_loader_dependencies.json"
@@ -10,7 +10,7 @@ hash = "e9c8f07079987d2a539d84657e180133c06beb838869c9ba742828eda98fc868"
 
 [[files]]
 file = "config/isxander-main-menu-credits.json"
-hash = "8fc87186ff2f2986cef231a83940586549d7de0d7bbbf9362cb37617caf8b654"
+hash = "b18ebd65c0fc3aef0abf0c598428830404bb09860edce99b0e3945b234445adb"
 
 [[files]]
 file = "config/yosbr/config/bettergrass.json5"
@@ -91,7 +91,7 @@ metafile = true
 
 [[files]]
 file = "mods/badoptimizations.pw.toml"
-hash = "cea71ad36ac75bfd1c23bd2f0d6ec4cc84c857b8483a122eabe051492c775586"
+hash = "c4f2a9678acf67122dbe6d8bc8c641503cc274305a3d62d86d6ba20d5fb28154"
 metafile = true
 
 [[files]]
@@ -161,12 +161,12 @@ metafile = true
 
 [[files]]
 file = "mods/entityculling.pw.toml"
-hash = "122f85dff1e476922df532237a8a4ae50d8cf42bd5db592568c6053393d0f051"
+hash = "1fe5827a72f348620cd127917ff3d4b77081252d145f471395968a136ab309cf"
 metafile = true
 
 [[files]]
 file = "mods/entitytexturefeatures.pw.toml"
-hash = "3a877bf85dbfea521a3202d043a5a6861a652d9494259da31e5cc3bb9e787e3f"
+hash = "a01edfb584f83782be7fe037c79bbf156ba1b84cddd1874da478cb1d1b2e2d8e"
 metafile = true
 
 [[files]]
@@ -376,5 +376,5 @@ metafile = true
 
 [[files]]
 file = "resourcepacks/translations-for-sodium.pw.toml"
-hash = "252f40abf8c2004662420ff41f340580c7a254220f8ba5a679366e20bd2849d1"
+hash = "3800f52d35bf45e48a2923831a54e3afc1df79dc723b431a6669c8df9d3fc32a"
 metafile = true
